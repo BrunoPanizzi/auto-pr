@@ -93,8 +93,12 @@ Grouping rules:
 ### Customer-facing changelog
 
 PR titles are written for developers; customers deserve better. Authors can
-write customer-facing notes in the PR body, between markers pre-filled by a
-[PR template](.github/PULL_REQUEST_TEMPLATE.md):
+write customer-facing notes in the PR body, between markers pre-filled by the
+optional [novidades template](.github/PULL_REQUEST_TEMPLATE/novidades.md) —
+select it by appending `?template=novidades.md` to the compare URL when
+opening a PR (GitHub has no template picker for PRs). Rename the file to
+`.github/PULL_REQUEST_TEMPLATE.md` instead if you'd rather have it pre-filled
+into every PR:
 
 ```markdown
 <!-- changelog:begin -->
