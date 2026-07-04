@@ -129,5 +129,5 @@ test('spliceBody is idempotent', () => {
 test('initialBody wraps the changelog with heading and merge note', () => {
   const body = initialBody(`${MARKER_BEGIN}\nx\n${MARKER_END}`, 'master', 'dev')
   assert.match(body, /^## Pending release\n/)
-  assert.match(body, /Merge this PR with a \*\*merge commit\*\* so `master` fully catches up with `dev`\./)
+  assert.match(body, /Merge with a \*\*merge commit\*\* so `master` stays in sync with `dev`\./)
 })
