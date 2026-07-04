@@ -7,6 +7,7 @@ const {
   parseVersion,
   bumpPatch,
   formatVersion,
+  prNumberFromCommitMessage,
   renderChangelog,
   spliceBody,
   initialBody,
@@ -36,6 +37,15 @@ test('bumpPatch only touches the patch component', () => {
   assert.equal(formatVersion(bumpPatch(parseVersion('v0.1.0'))), 'v0.1.1')
   assert.equal(formatVersion(bumpPatch(parseVersion('v1.0.0'))), 'v1.0.1')
   assert.equal(formatVersion(bumpPatch(parseVersion('v2.3.9'))), 'v2.3.10')
+})
+
+test('prNumberFromCommitMessage reads squash and merge commit messages', () => {
+  assert.equal(prNumberFromCommitMessage('Add farewell module (#3)'), 3)
+  assert.equal(prNumberFromCommitMessage('Fix thing (#12)\n\nlong body (#99)'), 12)
+  assert.equal(prNumberFromCommitMessage('Merge pull request #7 from o/feat'), 7)
+  assert.equal(prNumberFromCommitMessage('Mention (#5) mid-title somewhere'), null)
+  assert.equal(prNumberFromCommitMessage('Plain direct commit'), null)
+  assert.equal(prNumberFromCommitMessage(''), null)
 })
 
 test('renderChangelog lists PRs with number, title, and author', () => {
