@@ -1,0 +1,9 @@
+{
+  "name": "auto-pr",
+  "version": "0.0.0",
+  "private": true,
+  "description": "GitHub Action keeping an always-open release PR from dev to master with an auto-updated changelog",
+  "scripts": {
+    "test": "node --test"
+  }
+}

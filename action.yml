@@ -1,0 +1,57 @@
+name: 'auto-pr release PR'
+description: >-
+  Keeps an always-open release pull request from a staging branch to a
+  production branch, with an auto-updated changelog of everything not yet
+  deployed and an automatic patch version bump.
+author: 'BrunoPanizzi'
+branding:
+  icon: 'git-pull-request'
+  color: 'purple'
+
+inputs:
+  github-token:
+    description: >-
+      Token used to read merged PRs and create/update the release PR.
+      Needs `pull-requests: write`.
+    default: ${{ github.token }}
+  base:
+    description: 'Production branch the release PR targets.'
+    default: 'master'
+  head:
+    description: 'Staging branch the release PR comes from.'
+    default: 'dev'
+  initial-version:
+    description: >-
+      Version used for the very first release PR, when no previously merged
+      release PR exists.
+    default: 'v0.1.0'
+
+outputs:
+  pr-number:
+    description: 'Number of the open release PR (empty if there was nothing to release).'
+    value: ${{ steps.release-pr.outputs.pr-number }}
+  pr-url:
+    description: 'URL of the open release PR (empty if there was nothing to release).'
+    value: ${{ steps.release-pr.outputs.pr-url }}
+  version:
+    description: 'Current title of the release PR, human edits included.'
+    value: ${{ steps.release-pr.outputs.version }}
+  created:
+    description: 'Whether this run created the release PR (true) or updated an existing one (false).'
+    value: ${{ steps.release-pr.outputs.created }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: release-pr
+      uses: actions/github-script@v7
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_HEAD: ${{ inputs.head }}
+        INPUT_INITIAL_VERSION: ${{ inputs.initial-version }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const { main } = require(process.env.ACTION_PATH + '/src/release-pr.js')
+          await main({ github, context, core })
