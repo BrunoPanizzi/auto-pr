@@ -8,6 +8,8 @@ const {
   bump,
   formatVersion,
   prNumberFromCommitMessage,
+  parseGroups,
+  splitPrefix,
   renderChangelog,
   spliceBody,
   initialBody,
@@ -99,6 +101,106 @@ test('renderChangelog uses singular for one PR and lists direct commits', () => 
 test('renderChangelog handles the empty case', () => {
   const changelog = renderChangelog({ prs: [], directCommits: [], head: 'dev' })
   assert.match(changelog, /_No pending changes detected\._/)
+})
+
+test('parseGroups reads acronym mappings, skipping blanks and comments', () => {
+  const groups = parseGroups('OTF: Operação Terra Forte\n\n# comment\ninfra: Infraestrutura\n')
+  assert.deepEqual([...groups], [
+    ['OTF', 'Operação Terra Forte'],
+    ['INFRA', 'Infraestrutura'],
+  ])
+  assert.equal(parseGroups('').size, 0)
+  assert.equal(parseGroups(undefined).size, 0)
+})
+
+test('parseGroups rejects malformed lines', () => {
+  assert.throws(() => parseGroups('OTF Operação Terra Forte'), /Invalid groups line/)
+  assert.throws(() => parseGroups('OTF:'), /Invalid groups line/)
+  assert.throws(() => parseGroups(': nome'), /Invalid groups line/)
+})
+
+test('splitPrefix splits the acronym before the dash', () => {
+  assert.deepEqual(splitPrefix('OTF - Adiciona módulo de eventos'), {
+    acronym: 'OTF',
+    rest: 'Adiciona módulo de eventos',
+  })
+  assert.deepEqual(splitPrefix('INFRA- sem espaço'), { acronym: 'INFRA', rest: 'sem espaço' })
+  assert.equal(splitPrefix('Sem prefixo nenhum'), null)
+  assert.equal(splitPrefix('OTF - '), null)
+  assert.equal(splitPrefix('A - prefixo de uma letra'), null)
+})
+
+test('renderChangelog groups by prefix with mapped names, unknown acronyms, and ungrouped last', () => {
+  const groups = parseGroups('OTF: Operação Terra Forte\nINFRA: Infraestrutura')
+  const changelog = renderChangelog({
+    prs: [
+      { number: 1, title: 'Sem prefixo', author: 'a' },
+      { number: 2, title: 'OTF - Adiciona módulo de eventos', author: 'b' },
+      { number: 3, title: 'QA - Adiciona testes de fumaça', author: 'c' },
+      { number: 4, title: 'INFRA - Atualiza pipeline', author: 'd' },
+      { number: 5, title: 'OTF - Corrige relatório', author: 'e' },
+    ],
+    directCommits: [],
+    head: 'dev',
+    groups,
+    ungroupedLabel: 'Outros',
+  })
+  assert.equal(
+    changelog,
+    [
+      '<!-- auto-pr:begin -->',
+      '### Changes since last deploy',
+      '',
+      '#### Operação Terra Forte',
+      '- #2 Adiciona módulo de eventos (@b)',
+      '- #5 Corrige relatório (@e)',
+      '',
+      '#### Infraestrutura',
+      '- #4 Atualiza pipeline (@d)',
+      '',
+      '#### QA',
+      '- #3 Adiciona testes de fumaça (@c)',
+      '',
+      '#### Outros',
+      '- #1 Sem prefixo (@a)',
+      '',
+      '_5 pull requests · last updated from push to `dev`_',
+      '<!-- auto-pr:end -->',
+    ].join('\n')
+  )
+})
+
+test('renderChangelog leaves non-all-caps dash titles ungrouped and intact', () => {
+  const groups = parseGroups('OTF: Operação Terra Forte')
+  const changelog = renderChangelog({
+    prs: [{ number: 6, title: 'Fix - typo no readme', author: 'a' }],
+    directCommits: [],
+    head: 'dev',
+    groups,
+  })
+  assert.match(changelog, /#### Other\n- #6 Fix - typo no readme \(@a\)/)
+})
+
+test('renderChangelog matches known acronyms case-insensitively', () => {
+  const groups = parseGroups('OTF: Operação Terra Forte')
+  const changelog = renderChangelog({
+    prs: [{ number: 7, title: 'Otf - typo no acrônimo', author: 'a' }],
+    directCommits: [],
+    head: 'dev',
+    groups,
+  })
+  assert.match(changelog, /#### Operação Terra Forte\n- #7 typo no acrônimo \(@a\)/)
+})
+
+test('renderChangelog stays flat when no groups are configured', () => {
+  const changelog = renderChangelog({
+    prs: [{ number: 8, title: 'OTF - Continua plano', author: 'a' }],
+    directCommits: [],
+    head: 'dev',
+    groups: parseGroups(''),
+  })
+  assert.match(changelog, /- #8 OTF - Continua plano \(@a\)/)
+  assert.doesNotMatch(changelog, /####/)
 })
 
 test('spliceBody replaces only the marker-delimited section', () => {

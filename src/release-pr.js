@@ -47,13 +47,67 @@ function formatVersion(version) {
   return `v${version.major}.${version.minor}.${version.patch}`
 }
 
-function renderChangelog({ prs, directCommits, head }) {
+// Parses the `groups` input: one "ACRONYM: Display name" mapping per line.
+// Blank lines and #-comments are ignored; anything else malformed fails loudly.
+function parseGroups(input) {
+  const groups = new Map()
+  for (const rawLine of (input || '').split('\n')) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#')) continue
+    const colon = line.indexOf(':')
+    const acronym = colon === -1 ? '' : line.slice(0, colon).trim()
+    const label = colon === -1 ? '' : line.slice(colon + 1).trim()
+    if (!acronym || !label) {
+      throw new Error(`Invalid groups line "${line}": expected "ACRONYM: Display name"`)
+    }
+    groups.set(acronym.toUpperCase(), label)
+  }
+  return groups
+}
+
+// "OTF - Adiciona módulo de eventos" -> { acronym: 'OTF', rest: 'Adiciona...' }
+function splitPrefix(title) {
+  const m = /^([A-Za-z][A-Za-z0-9]{1,11})\s*-\s*(.+)$/.exec((title || '').trim())
+  if (!m) return null
+  return { acronym: m[1], rest: m[2].trim() }
+}
+
+function renderChangelog({ prs, directCommits, head, groups, ungroupedLabel = 'Other' }) {
+  const entry = (pr, title) => `- #${pr.number} ${title} (@${pr.author})`
   const lines = [MARKER_BEGIN, '### Changes since last deploy', '']
   if (prs.length === 0 && directCommits.length === 0) {
     lines.push('_No pending changes detected._')
-  }
-  for (const pr of prs) {
-    lines.push(`- #${pr.number} ${pr.title} (@${pr.author})`)
+  } else if (!groups || groups.size === 0) {
+    for (const pr of prs) {
+      lines.push(entry(pr, pr.title))
+    }
+  } else {
+    const buckets = new Map()
+    const add = (label, line) => {
+      if (!buckets.has(label)) buckets.set(label, [])
+      buckets.get(label).push(line)
+    }
+    const unknownAcronyms = new Set()
+    for (const pr of prs) {
+      const split = splitPrefix(pr.title)
+      const key = split ? split.acronym.toUpperCase() : null
+      if (split && groups.has(key)) {
+        add(groups.get(key), entry(pr, split.rest))
+      } else if (split && split.acronym === key) {
+        // All-caps prefix that is not in the mapping yet: group it under the
+        // raw acronym rather than losing it among the ungrouped PRs.
+        unknownAcronyms.add(key)
+        add(key, entry(pr, split.rest))
+      } else {
+        add(ungroupedLabel, entry(pr, pr.title))
+      }
+    }
+    const order = [...new Set([...groups.values(), ...[...unknownAcronyms].sort(), ungroupedLabel])]
+    const sections = order.filter((label) => buckets.has(label))
+    for (const [i, label] of sections.entries()) {
+      if (i > 0) lines.push('')
+      lines.push(`#### ${label}`, ...buckets.get(label))
+    }
   }
   if (directCommits.length > 0) {
     lines.push('', 'Commits without a pull request:')
@@ -188,11 +242,13 @@ async function main({ github, context, core }) {
   if (!BUMP_LEVELS.includes(bumpLevel)) {
     throw new Error(`Invalid bump input "${bumpLevel}": expected one of ${BUMP_LEVELS.join(', ')}`)
   }
+  const groups = parseGroups(process.env.INPUT_GROUPS)
+  const ungroupedLabel = process.env.INPUT_UNGROUPED_LABEL || 'Other'
   const { owner, repo } = context.repo
 
   const { prs, directCommits } = await collectPendingChanges({ github, owner, repo, base, head })
   core.info(`${prs.length} merged PR(s) and ${directCommits.length} direct commit(s) pending on ${head}`)
-  const changelog = renderChangelog({ prs, directCommits, head })
+  const changelog = renderChangelog({ prs, directCommits, head, groups, ungroupedLabel })
 
   const open = await github.rest.pulls.list({
     owner,
@@ -250,6 +306,8 @@ module.exports = {
   bump,
   formatVersion,
   prNumberFromCommitMessage,
+  parseGroups,
+  splitPrefix,
   renderChangelog,
   spliceBody,
   initialBody,
