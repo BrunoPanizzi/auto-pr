@@ -8,8 +8,9 @@
 //    yet on `base`, kept between MARKER_BEGIN/MARKER_END so human-written text
 //    outside the markers survives updates.
 //  - Its title is set exactly once, at creation, to the previous released
-//    version with the patch bumped. Human edits to the title are never
-//    overwritten; the next release cycle bumps from whatever title was merged.
+//    version bumped by the configured level (minor by default). Human edits to
+//    the title are never overwritten; the next release cycle bumps from
+//    whatever title was merged.
 
 const MARKER_BEGIN = '<!-- auto-pr:begin -->'
 const MARKER_END = '<!-- auto-pr:end -->'
@@ -27,8 +28,19 @@ function parseVersion(text) {
   return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]) }
 }
 
-function bumpPatch(version) {
-  return { major: version.major, minor: version.minor, patch: version.patch + 1 }
+const BUMP_LEVELS = ['major', 'minor', 'patch']
+
+function bump(version, level) {
+  switch (level) {
+    case 'major':
+      return { major: version.major + 1, minor: 0, patch: 0 }
+    case 'minor':
+      return { major: version.major, minor: version.minor + 1, patch: 0 }
+    case 'patch':
+      return { major: version.major, minor: version.minor, patch: version.patch + 1 }
+    default:
+      throw new Error(`Invalid bump level "${level}": expected one of ${BUMP_LEVELS.join(', ')}`)
+  }
 }
 
 function formatVersion(version) {
@@ -172,6 +184,10 @@ async function main({ github, context, core }) {
   const base = process.env.INPUT_BASE || 'master'
   const head = process.env.INPUT_HEAD || 'dev'
   const initialVersion = process.env.INPUT_INITIAL_VERSION || 'v0.1.0'
+  const bumpLevel = process.env.INPUT_BUMP || 'minor'
+  if (!BUMP_LEVELS.includes(bumpLevel)) {
+    throw new Error(`Invalid bump input "${bumpLevel}": expected one of ${BUMP_LEVELS.join(', ')}`)
+  }
   const { owner, repo } = context.repo
 
   const { prs, directCommits } = await collectPendingChanges({ github, owner, repo, base, head })
@@ -208,7 +224,7 @@ async function main({ github, context, core }) {
     }
     const previous = await lastReleasedVersion({ github, core, owner, repo, base, head })
     const initial = parseVersion(initialVersion)
-    const title = previous ? formatVersion(bumpPatch(previous)) : initial ? formatVersion(initial) : initialVersion
+    const title = previous ? formatVersion(bump(previous, bumpLevel)) : initial ? formatVersion(initial) : initialVersion
     const res = await github.rest.pulls.create({
       owner,
       repo,
@@ -231,7 +247,7 @@ async function main({ github, context, core }) {
 module.exports = {
   main,
   parseVersion,
-  bumpPatch,
+  bump,
   formatVersion,
   prNumberFromCommitMessage,
   renderChangelog,

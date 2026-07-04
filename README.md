@@ -14,8 +14,9 @@ Every push to `dev` (i.e. every PR that lands there):
    directly to `dev` without a PR are listed too.
 2. **Upserts the release PR** —
    - If no open `dev → master` PR exists, one is created. Its title is the
-     previously released version with the **patch bumped** (`v0.1.0` if there
-     is no previous release), and its body contains the changelog.
+     previously released version with the **minor bumped** (configurable via
+     the `bump` input; `v0.1.0` if there is no previous release), and its body
+     contains the changelog.
    - If one is already open, only the changelog section of its body is
      rewritten. The title is **never touched after creation**.
 
@@ -23,9 +24,10 @@ Every push to `dev` (i.e. every PR that lands there):
 
 - The version source of truth is the title of the most recently **merged**
   `dev → master` PR.
-- New release PRs bump the **patch** of that version automatically.
-- Humans own the title after creation: rename the open release PR to `v1.0.0`
-  and it stays `v1.0.0`; once merged, the next release PR will be `v1.0.1`.
+- New release PRs bump the **minor** of that version automatically (set the
+  `bump` input to `major`, `minor`, or `patch` to change this).
+- Humans own the title after creation: rename the open release PR to `v2.0.0`
+  and it stays `v2.0.0`; once merged, the next release PR will be `v2.1.0`.
 - Merged release PRs with unparseable titles are skipped (with a warning) and
   the search continues into older releases.
 
@@ -96,6 +98,7 @@ This repository dogfoods the action with `uses: ./` in
 | `base`            | `master`              | Production branch the release PR targets.               |
 | `head`            | `dev`                 | Staging branch the release PR comes from.               |
 | `initial-version` | `v0.1.0`              | Version of the very first release PR.                   |
+| `bump`            | `minor`               | Component bumped for new release PRs (`major`, `minor`, `patch`). |
 
 ### Outputs
 

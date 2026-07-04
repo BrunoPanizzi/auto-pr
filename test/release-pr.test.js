@@ -5,7 +5,7 @@ const assert = require('node:assert/strict')
 
 const {
   parseVersion,
-  bumpPatch,
+  bump,
   formatVersion,
   prNumberFromCommitMessage,
   renderChangelog,
@@ -33,10 +33,23 @@ test('parseVersion rejects non-versions', () => {
   assert.equal(parseVersion(null), null)
 })
 
-test('bumpPatch only touches the patch component', () => {
-  assert.equal(formatVersion(bumpPatch(parseVersion('v0.1.0'))), 'v0.1.1')
-  assert.equal(formatVersion(bumpPatch(parseVersion('v1.0.0'))), 'v1.0.1')
-  assert.equal(formatVersion(bumpPatch(parseVersion('v2.3.9'))), 'v2.3.10')
+test('bump minor increments minor and resets patch', () => {
+  assert.equal(formatVersion(bump(parseVersion('v0.1.0'), 'minor')), 'v0.2.0')
+  assert.equal(formatVersion(bump(parseVersion('v1.0.3'), 'minor')), 'v1.1.0')
+  assert.equal(formatVersion(bump(parseVersion('v2.9.9'), 'minor')), 'v2.10.0')
+})
+
+test('bump patch only touches the patch component', () => {
+  assert.equal(formatVersion(bump(parseVersion('v0.1.0'), 'patch')), 'v0.1.1')
+  assert.equal(formatVersion(bump(parseVersion('v2.3.9'), 'patch')), 'v2.3.10')
+})
+
+test('bump major resets minor and patch', () => {
+  assert.equal(formatVersion(bump(parseVersion('v1.4.2'), 'major')), 'v2.0.0')
+})
+
+test('bump rejects unknown levels', () => {
+  assert.throws(() => bump(parseVersion('v1.0.0'), 'huge'), /Invalid bump level "huge"/)
 })
 
 test('prNumberFromCommitMessage reads squash and merge commit messages', () => {
