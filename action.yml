@@ -25,6 +25,11 @@ inputs:
       Version used for the very first release PR, when no previously merged
       release PR exists.
     default: 'v0.1.0'
+  bump:
+    description: >-
+      Version component bumped when creating a new release PR: major, minor,
+      or patch.
+    default: 'minor'
 
 outputs:
   pr-number:
@@ -50,6 +55,7 @@ runs:
         INPUT_BASE: ${{ inputs.base }}
         INPUT_HEAD: ${{ inputs.head }}
         INPUT_INITIAL_VERSION: ${{ inputs.initial-version }}
+        INPUT_BUMP: ${{ inputs.bump }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
