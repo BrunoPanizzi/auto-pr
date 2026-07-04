@@ -23,6 +23,11 @@ jobs:
 
       - id: release-pr
         uses: ./
+        with:
+          groups: |
+            OTF: Operação Terra Forte
+            INFRA: Infraestrutura
+          ungrouped-label: Outros
 
       - name: Summary
         if: steps.release-pr.outputs.pr-number != ''

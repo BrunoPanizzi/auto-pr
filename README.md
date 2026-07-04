@@ -50,6 +50,46 @@ Anything you write **outside** the markers (release notes, checklists,
 warnings) is preserved across updates. If you delete the markers, the
 changelog section is re-appended at the end.
 
+### Grouping by title prefix
+
+Teams that prefix PR titles with a project acronym ("OTF - Adiciona módulo de
+eventos") can pass a mapping via the `groups` input to get the changelog
+grouped by project, with full names as headings:
+
+```yaml
+- uses: BrunoPanizzi/auto-pr@master
+  with:
+    groups: |
+      OTF: Operação Terra Forte
+      INFRA: Infraestrutura
+    ungrouped-label: Outros
+```
+
+```markdown
+#### Operação Terra Forte
+- #12 Adiciona módulo de eventos (@bruno)
+
+#### Infraestrutura
+- #14 Atualiza pipeline (@bruno)
+
+#### Outros
+- #15 Fix typo (@bruno)
+```
+
+Grouping rules:
+
+- The prefix is the acronym before the first dash; it is stripped from the
+  entry since the group heading already says which project it is. Known
+  acronyms match case-insensitively.
+- All-caps prefixes that are **not** in the mapping still get their own group,
+  under the raw acronym, so PRs from a new project are not lost while the
+  mapping catches up.
+- PRs without a recognizable prefix land in a final group named by
+  `ungrouped-label` (default `Other`).
+- Groups appear in the order of the mapping, then unknown acronyms
+  alphabetically, then the ungrouped bucket.
+- When `groups` is empty (the default), the changelog is a flat list.
+
 > [!IMPORTANT]
 > Merge the release PR with a **merge commit** (not squash), so that `master`
 > ends up containing `dev`'s commits. Squash-merging would leave the two
@@ -99,6 +139,8 @@ This repository dogfoods the action with `uses: ./` in
 | `head`            | `dev`                 | Staging branch the release PR comes from.               |
 | `initial-version` | `v0.1.0`              | Version of the very first release PR.                   |
 | `bump`            | `minor`               | Component bumped for new release PRs (`major`, `minor`, `patch`). |
+| `groups`          | _(empty)_             | Newline-separated `ACRONYM: Display name` mapping enabling grouped changelogs. |
+| `ungrouped-label` | `Other`               | Heading for PRs without a recognizable prefix (only used with `groups`). |
 
 ### Outputs
 
