@@ -16,6 +16,11 @@ const MARKER_END = '<!-- auto-pr:end -->'
 
 const SEMVER_RE = /v?(\d+)\.(\d+)\.(\d+)/
 
+// Squash merges produce "Title (#N)" first lines; merge commits produce
+// "Merge pull request #N from ...".
+const SQUASH_MESSAGE_RE = /\(#(\d+)\)\s*$/
+const MERGE_MESSAGE_RE = /^Merge pull request #(\d+)/
+
 function parseVersion(text) {
   const m = SEMVER_RE.exec(text || '')
   if (!m) return null
@@ -62,6 +67,12 @@ function spliceBody(existingBody, changelog) {
   return (body ? body.trimEnd() + '\n\n' : '') + changelog
 }
 
+function prNumberFromCommitMessage(message) {
+  const firstLine = (message || '').split('\n')[0]
+  const m = SQUASH_MESSAGE_RE.exec(firstLine) || MERGE_MESSAGE_RE.exec(firstLine)
+  return m ? Number(m[1]) : null
+}
+
 function initialBody(changelog, base, head) {
   return [
     '## Pending release',
@@ -99,7 +110,21 @@ async function collectPendingChanges({ github, owner, repo, base, head }) {
       repo,
       commit_sha: commit.sha,
     })
-    const mergedIntoHead = assoc.data.filter((pr) => pr.merged_at && pr.base.ref === head)
+    let mergedIntoHead = assoc.data.filter((pr) => pr.merged_at && pr.base.ref === head)
+    if (mergedIntoHead.length === 0) {
+      // The commit -> PR association index is eventually consistent, and the
+      // commit that triggered this very run is often not indexed yet. Fall
+      // back to the PR number embedded in squash/merge commit messages.
+      const number = prNumberFromCommitMessage(commit.commit.message)
+      if (number !== null) {
+        try {
+          const res = await github.rest.pulls.get({ owner, repo, pull_number: number })
+          if (res.data.merged_at && res.data.base.ref === head) mergedIntoHead = [res.data]
+        } catch (err) {
+          if (err.status !== 404) throw err
+        }
+      }
+    }
     if (mergedIntoHead.length === 0 && commit.parents.length < 2) {
       directCommits.push({ sha: commit.sha, message: commit.commit.message.split('\n')[0] })
     }
@@ -207,6 +232,7 @@ module.exports = {
   parseVersion,
   bumpPatch,
   formatVersion,
+  prNumberFromCommitMessage,
   renderChangelog,
   spliceBody,
   initialBody,
