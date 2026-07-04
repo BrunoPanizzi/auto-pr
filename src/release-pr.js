@@ -24,6 +24,11 @@ const CHANGELOG_END = '<!-- changelog:end -->'
 // customer-visible" (trailing punctuation ignored).
 const INTERNAL_NOTE_WORDS = new Set(['interno', 'internal', 'skip'])
 
+// Kept in sync with .github/PULL_REQUEST_TEMPLATE/novidades.md so a bare
+// /novidades command inserts the same section the template would.
+const CHANGELOG_INSTRUCTION = `<!-- O que muda para o cliente? Escreva em bullets abaixo desta linha,
+     ou escreva "interno" se a mudança não for visível para o cliente. -->`
+
 const SEMVER_RE = /v?(\d+)\.(\d+)\.(\d+)/
 
 // Squash merges produce "Title (#N)" first lines; merge commits produce
@@ -102,6 +107,42 @@ function extractCustomerNotes(body) {
     return null
   }
   return lines.map((line) => `- ${line.replace(/^[-*]\s+/, '')}`)
+}
+
+// Bullet-normalizes free text destined for the changelog section, except a
+// lone internal-marker word, which must stay bare so extractCustomerNotes
+// still recognizes the opt-out.
+function normalizeNotesText(text) {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length === 1) {
+    const bare = lines[0].replace(/^[-*]\s+/, '')
+    if (INTERNAL_NOTE_WORDS.has(bare.toLowerCase().replace(/[.!]+$/, ''))) return bare
+  }
+  return lines.map((line) => `- ${line.replace(/^[-*]\s+/, '')}`).join('\n')
+}
+
+// Applies a /novidades command to a PR body. With text, the marker section is
+// created or its content replaced; without text, an empty template section is
+// appended when missing. Returns the new body, or null when nothing changes.
+function upsertCustomerSection(existingBody, notesText) {
+  const body = existingBody || ''
+  const begin = body.indexOf(CHANGELOG_BEGIN)
+  const end = body.indexOf(CHANGELOG_END)
+  const hasMarkers = begin !== -1 && end !== -1 && end >= begin
+  if (!notesText) {
+    if (hasMarkers) return null
+    const section = [CHANGELOG_BEGIN, CHANGELOG_INSTRUCTION, CHANGELOG_END].join('\n')
+    return (body ? body.trimEnd() + '\n\n' : '') + section + '\n'
+  }
+  const section = [CHANGELOG_BEGIN, normalizeNotesText(notesText), CHANGELOG_END].join('\n')
+  if (hasMarkers) {
+    const next = body.slice(0, begin) + section + body.slice(end + CHANGELOG_END.length)
+    return next === body ? null : next
+  }
+  return (body ? body.trimEnd() + '\n\n' : '') + section + '\n'
 }
 
 // Content of the auto-managed block of a release PR body, without the
@@ -442,9 +483,52 @@ async function publishRelease({ github, context, core }) {
   core.setOutput('tag', tag)
 }
 
+// Entry point of the novidades/ sub-action: a comment starting with the
+// command word writes the customer changelog section into the PR body, since
+// GitHub's /template slash command cannot insert named PR templates. The
+// comment gets a 🚀 reaction as acknowledgment.
+async function applyNovidadesCommand({ github, context, core }) {
+  const command = process.env.INPUT_COMMAND || 'novidades'
+  const { owner, repo } = context.repo
+  const issue = context.payload.issue
+  const comment = context.payload.comment
+  if (!issue || !comment) {
+    core.info('No comment payload; nothing to do')
+    return
+  }
+  if (!issue.pull_request) {
+    core.info(`Comment is on an issue, not a PR; /${command} only works on pull requests`)
+    return
+  }
+  const match = new RegExp(`^/${command}\\b([\\s\\S]*)$`).exec((comment.body || '').trim())
+  if (!match) {
+    core.info(`Comment does not start with /${command}; ignoring`)
+    return
+  }
+  const notesText = match[1].trim()
+
+  const pr = await github.rest.pulls.get({ owner, repo, pull_number: issue.number })
+  const newBody = upsertCustomerSection(pr.data.body, notesText)
+  if (newBody !== null) {
+    await github.rest.pulls.update({ owner, repo, pull_number: issue.number, body: newBody })
+    core.info(`Updated the changelog section of PR #${issue.number}`)
+  } else {
+    core.info(`PR #${issue.number} already has the requested changelog section; no edit needed`)
+  }
+  await github.rest.reactions.createForIssueComment({
+    owner,
+    repo,
+    comment_id: comment.id,
+    content: 'rocket',
+  })
+  core.setOutput('updated', String(newBody !== null))
+  core.setOutput('pr-number', String(issue.number))
+}
+
 module.exports = {
   main,
   publishRelease,
+  applyNovidadesCommand,
   parseVersion,
   bump,
   formatVersion,
@@ -453,6 +537,7 @@ module.exports = {
   splitPrefix,
   extractCustomerNotes,
   extractAutoBlock,
+  upsertCustomerSection,
   renderChangelog,
   spliceBody,
   initialBody,

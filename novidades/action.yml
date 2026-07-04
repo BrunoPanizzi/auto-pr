@@ -1,0 +1,43 @@
+name: 'auto-pr novidades command'
+description: >-
+  Comment command for pull requests: "/novidades <texto>" writes the
+  customer-facing changelog section into the PR body (creating or replacing
+  the marker section); a bare "/novidades" inserts the empty template
+  section. Exists because GitHub's native /template slash command cannot
+  insert named PR templates. Trigger on issue_comment created events.
+author: 'BrunoPanizzi'
+branding:
+  icon: 'message-square'
+  color: 'purple'
+
+inputs:
+  github-token:
+    description: >-
+      Token used to edit the PR body and react to the comment. Needs
+      `pull-requests: write` and `issues: write`.
+    default: ${{ github.token }}
+  command:
+    description: 'Command word the comment must start with, without the slash.'
+    default: 'novidades'
+
+outputs:
+  updated:
+    description: 'Whether the PR body was changed (false if it already matched).'
+    value: ${{ steps.command.outputs.updated }}
+  pr-number:
+    description: 'Number of the PR whose body was targeted.'
+    value: ${{ steps.command.outputs.pr-number }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: command
+      uses: actions/github-script@v7
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        INPUT_COMMAND: ${{ inputs.command }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const { applyNovidadesCommand } = require(process.env.ACTION_PATH + '/../src/release-pr.js')
+          await applyNovidadesCommand({ github, context, core })

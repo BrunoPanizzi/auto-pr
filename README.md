@@ -93,12 +93,7 @@ Grouping rules:
 ### Customer-facing changelog
 
 PR titles are written for developers; customers deserve better. Authors can
-write customer-facing notes in the PR body, between markers pre-filled by the
-optional [novidades template](.github/PULL_REQUEST_TEMPLATE/novidades.md) —
-select it by appending `?template=novidades.md` to the compare URL when
-opening a PR (GitHub has no template picker for PRs). Rename the file to
-`.github/PULL_REQUEST_TEMPLATE.md` instead if you'd rather have it pre-filled
-into every PR:
+write customer-facing notes in the PR body, between changelog markers:
 
 ```markdown
 <!-- changelog:begin -->
@@ -129,6 +124,66 @@ Rules:
 - Multiple bullets per PR are fine; plain lines are turned into bullets.
 - The template's instruction comment doesn't count as content, so untouched
   templates are treated as "no notes".
+
+#### Getting the markers into a PR
+
+Three ways, from most to least convenient:
+
+1. **The `/novidades` comment command** (the `novidades/` action, below):
+   comment on the PR and the section is written into the body for you.
+2. **The optional PR template**
+   ([`.github/PULL_REQUEST_TEMPLATE/novidades.md`](.github/PULL_REQUEST_TEMPLATE/novidades.md)):
+   append `?template=novidades.md` to the compare URL when opening a PR.
+3. **Manually**: copy the markers into the body.
+
+> [!NOTE]
+> GitHub's native `/template` slash command (public preview) only inserts the
+> *default* `PULL_REQUEST_TEMPLATE.md` — named templates never appear in it,
+> and there is no template picker UI for PRs. That gap is exactly why the
+> comment command exists. Make the template the default (rename it to
+> `.github/PULL_REQUEST_TEMPLATE.md`) if you'd rather have the markers
+> pre-filled into every PR.
+
+### The `/novidades` comment command
+
+Comment on any PR and the `novidades/` action writes the changelog section
+into the PR body (and reacts 🚀 to acknowledge):
+
+- `/novidades Relatórios agora exportam PDF` — creates the section with that
+  note, or replaces the current section content. Multiline comments work;
+  lines are bulleted automatically.
+- `/novidades interno` — marks the PR as internal.
+- `/novidades` (bare) — inserts the empty template section for later editing;
+  no-op if the markers already exist.
+
+The comment must *start* with the command. Editing the PR body directly is
+always possible too — the command is sugar over the same markers.
+
+```yaml
+name: Novidades Command
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  novidades:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/novidades')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: BrunoPanizzi/auto-pr/novidades@master
+```
+
+> [!NOTE]
+> `issue_comment` workflows only run from the workflow file on the
+> **default branch**, and anyone who can comment can trigger the command —
+> fine for private team repos, but add an author check before using it on a
+> public one. The command word is configurable via the `command` input.
 
 ### Publishing GitHub Releases
 

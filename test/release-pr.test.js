@@ -12,6 +12,7 @@ const {
   splitPrefix,
   extractCustomerNotes,
   extractAutoBlock,
+  upsertCustomerSection,
   renderChangelog,
   spliceBody,
   initialBody,
@@ -218,6 +219,44 @@ test('extractCustomerNotes returns null for missing, empty, or internal sections
   assert.equal(extractCustomerNotes(CL('interno')), null)
   assert.equal(extractCustomerNotes(CL('Interno.')), null)
   assert.equal(extractCustomerNotes(CL('skip')), null)
+})
+
+test('upsertCustomerSection sets notes on a body without markers', () => {
+  const next = upsertCustomerSection('Descrição técnica.', 'Relatórios agora exportam PDF')
+  assert.equal(
+    next,
+    'Descrição técnica.\n\n<!-- changelog:begin -->\n- Relatórios agora exportam PDF\n<!-- changelog:end -->\n'
+  )
+  assert.deepEqual(extractCustomerNotes(next), ['- Relatórios agora exportam PDF'])
+})
+
+test('upsertCustomerSection replaces existing marker content and keeps surroundings', () => {
+  const body = `intro\n\n${CL('- nota antiga')}\n\noutro texto`
+  const next = upsertCustomerSection(body, '- nota nova\nsegunda linha')
+  assert.equal(next, `intro\n\n${CL('- nota nova\n- segunda linha')}\n\noutro texto`)
+})
+
+test('upsertCustomerSection keeps a lone interno bare so the opt-out still works', () => {
+  const next = upsertCustomerSection('corpo', 'interno')
+  assert.match(next, /<!-- changelog:begin -->\ninterno\n<!-- changelog:end -->/)
+  assert.equal(extractCustomerNotes(next), null)
+})
+
+test('upsertCustomerSection with no text inserts the empty template section once', () => {
+  const next = upsertCustomerSection('corpo', '')
+  assert.match(next, /<!-- changelog:begin -->\n<!-- O que muda para o cliente\?/)
+  assert.equal(extractCustomerNotes(next), null)
+  assert.equal(upsertCustomerSection(next, ''), null)
+})
+
+test('upsertCustomerSection returns null when the section already matches', () => {
+  const once = upsertCustomerSection('corpo', 'mesma nota')
+  assert.equal(upsertCustomerSection(once, 'mesma nota'), null)
+})
+
+test('upsertCustomerSection works on an empty body', () => {
+  const next = upsertCustomerSection(null, 'Nova funcionalidade')
+  assert.equal(next, '<!-- changelog:begin -->\n- Nova funcionalidade\n<!-- changelog:end -->\n')
 })
 
 test('extractAutoBlock returns the inner changelog block of a release PR body', () => {
