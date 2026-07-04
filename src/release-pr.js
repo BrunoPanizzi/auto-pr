@@ -79,8 +79,9 @@ function initialBody(changelog, base, head) {
     '',
     changelog,
     '',
-    '> [!IMPORTANT]',
-    `> Merge this PR with a **merge commit** so \`${base}\` fully catches up with \`${head}\`.`,
+    '---',
+    '',
+    `_Merging this PR ships everything listed above to production. Merge with a **merge commit** so \`${base}\` stays in sync with \`${head}\`._`,
   ].join('\n')
 }
 
