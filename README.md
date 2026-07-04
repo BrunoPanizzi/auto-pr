@@ -150,8 +150,9 @@ Comment on any PR and the `novidades/` action writes the changelog section
 into the PR body (and reacts 🚀 to acknowledge):
 
 - `/novidades Relatórios agora exportam PDF` — creates the section with that
-  note, or replaces the current section content. Multiline comments work;
-  lines are bulleted automatically.
+  note (under a visible `## Novidades 🎉` heading, configurable via the
+  `heading` input), or replaces the current section content without touching
+  its surroundings. Multiline comments work; lines are bulleted automatically.
 - `/novidades interno` — marks the PR as internal.
 - `/novidades` (bare) — inserts the empty template section for later editing;
   no-op if the markers already exist.
