@@ -254,6 +254,23 @@ test('upsertCustomerSection returns null when the section already matches', () =
   assert.equal(upsertCustomerSection(once, 'mesma nota'), null)
 })
 
+test('upsertCustomerSection prepends the heading when creating the section', () => {
+  const withText = upsertCustomerSection('corpo', 'Nova nota', '## Novidades 🎉')
+  assert.equal(
+    withText,
+    'corpo\n\n## Novidades 🎉\n\n<!-- changelog:begin -->\n- Nova nota\n<!-- changelog:end -->\n'
+  )
+  const bare = upsertCustomerSection('corpo', '', '## Novidades 🎉')
+  assert.match(bare, /## Novidades 🎉\n\n<!-- changelog:begin -->\n<!-- O que muda para o cliente\?/)
+})
+
+test('upsertCustomerSection never duplicates the heading when replacing content', () => {
+  const body = '## Novidades 🎉\n\n<!-- changelog:begin -->\n- nota velha\n<!-- changelog:end -->\n'
+  const next = upsertCustomerSection(body, 'nota nova', '## Novidades 🎉')
+  assert.equal((next.match(/## Novidades 🎉/g) || []).length, 1)
+  assert.match(next, /- nota nova/)
+})
+
 test('upsertCustomerSection works on an empty body', () => {
   const next = upsertCustomerSection(null, 'Nova funcionalidade')
   assert.equal(next, '<!-- changelog:begin -->\n- Nova funcionalidade\n<!-- changelog:end -->\n')
