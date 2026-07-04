@@ -19,6 +19,13 @@ inputs:
   command:
     description: 'Command word the comment must start with, without the slash.'
     default: 'novidades'
+  heading:
+    description: >-
+      Visible markdown heading placed above the marker section when the
+      command creates it (kept in sync with the PR template's heading).
+      Replacing content in an existing section never adds it. Set to an
+      empty string to disable.
+    default: '## Novidades 🎉'
 
 outputs:
   updated:
@@ -36,6 +43,7 @@ runs:
       env:
         ACTION_PATH: ${{ github.action_path }}
         INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_HEADING: ${{ inputs.heading }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |

@@ -126,23 +126,30 @@ function normalizeNotesText(text) {
 
 // Applies a /novidades command to a PR body. With text, the marker section is
 // created or its content replaced; without text, an empty template section is
-// appended when missing. Returns the new body, or null when nothing changes.
-function upsertCustomerSection(existingBody, notesText) {
+// appended when missing. A freshly created section is prefixed with the
+// visible heading (matching the PR template); replacements leave the
+// surroundings alone so an existing heading is never duplicated. Returns the
+// new body, or null when nothing changes.
+function upsertCustomerSection(existingBody, notesText, heading = '') {
   const body = existingBody || ''
   const begin = body.indexOf(CHANGELOG_BEGIN)
   const end = body.indexOf(CHANGELOG_END)
   const hasMarkers = begin !== -1 && end !== -1 && end >= begin
+  const appendFreshSection = (content) => {
+    const section = [CHANGELOG_BEGIN, content, CHANGELOG_END].join('\n')
+    const withHeading = heading ? `${heading}\n\n${section}` : section
+    return (body ? body.trimEnd() + '\n\n' : '') + withHeading + '\n'
+  }
   if (!notesText) {
     if (hasMarkers) return null
-    const section = [CHANGELOG_BEGIN, CHANGELOG_INSTRUCTION, CHANGELOG_END].join('\n')
-    return (body ? body.trimEnd() + '\n\n' : '') + section + '\n'
+    return appendFreshSection(CHANGELOG_INSTRUCTION)
   }
-  const section = [CHANGELOG_BEGIN, normalizeNotesText(notesText), CHANGELOG_END].join('\n')
   if (hasMarkers) {
+    const section = [CHANGELOG_BEGIN, normalizeNotesText(notesText), CHANGELOG_END].join('\n')
     const next = body.slice(0, begin) + section + body.slice(end + CHANGELOG_END.length)
     return next === body ? null : next
   }
-  return (body ? body.trimEnd() + '\n\n' : '') + section + '\n'
+  return appendFreshSection(normalizeNotesText(notesText))
 }
 
 // Content of the auto-managed block of a release PR body, without the
@@ -489,6 +496,7 @@ async function publishRelease({ github, context, core }) {
 // comment gets a 🚀 reaction as acknowledgment.
 async function applyNovidadesCommand({ github, context, core }) {
   const command = process.env.INPUT_COMMAND || 'novidades'
+  const heading = process.env.INPUT_HEADING ?? '## Novidades 🎉'
   const { owner, repo } = context.repo
   const issue = context.payload.issue
   const comment = context.payload.comment
@@ -508,7 +516,7 @@ async function applyNovidadesCommand({ github, context, core }) {
   const notesText = match[1].trim()
 
   const pr = await github.rest.pulls.get({ owner, repo, pull_number: issue.number })
-  const newBody = upsertCustomerSection(pr.data.body, notesText)
+  const newBody = upsertCustomerSection(pr.data.body, notesText, heading)
   if (newBody !== null) {
     await github.rest.pulls.update({ owner, repo, pull_number: issue.number, body: newBody })
     core.info(`Updated the changelog section of PR #${issue.number}`)
