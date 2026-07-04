@@ -14,8 +14,9 @@ Every push to `dev` (i.e. every PR that lands there):
    directly to `dev` without a PR are listed too.
 2. **Upserts the release PR** —
    - If no open `dev → master` PR exists, one is created. Its title is the
-     previously released version with the **patch bumped** (`v0.1.0` if there
-     is no previous release), and its body contains the changelog.
+     previously released version with the **minor bumped** (configurable via
+     the `bump` input; `v0.1.0` if there is no previous release), and its body
+     contains the changelog.
    - If one is already open, only the changelog section of its body is
      rewritten. The title is **never touched after creation**.
 
@@ -23,9 +24,10 @@ Every push to `dev` (i.e. every PR that lands there):
 
 - The version source of truth is the title of the most recently **merged**
   `dev → master` PR.
-- New release PRs bump the **patch** of that version automatically.
-- Humans own the title after creation: rename the open release PR to `v1.0.0`
-  and it stays `v1.0.0`; once merged, the next release PR will be `v1.0.1`.
+- New release PRs bump the **minor** of that version automatically (set the
+  `bump` input to `major`, `minor`, or `patch` to change this).
+- Humans own the title after creation: rename the open release PR to `v2.0.0`
+  and it stays `v2.0.0`; once merged, the next release PR will be `v2.1.0`.
 - Merged release PRs with unparseable titles are skipped (with a warning) and
   the search continues into older releases.
 
@@ -47,6 +49,114 @@ _2 pull requests · last updated from push to `dev`_
 Anything you write **outside** the markers (release notes, checklists,
 warnings) is preserved across updates. If you delete the markers, the
 changelog section is re-appended at the end.
+
+### Grouping by title prefix
+
+Teams that prefix PR titles with a project acronym ("OTF - Adiciona módulo de
+eventos") can pass a mapping via the `groups` input to get the changelog
+grouped by project, with full names as headings:
+
+```yaml
+- uses: BrunoPanizzi/auto-pr@master
+  with:
+    groups: |
+      OTF: Operação Terra Forte
+      INFRA: Infraestrutura
+    ungrouped-label: Outros
+```
+
+```markdown
+#### Operação Terra Forte
+- #12 Adiciona módulo de eventos (@bruno)
+
+#### Infraestrutura
+- #14 Atualiza pipeline (@bruno)
+
+#### Outros
+- #15 Fix typo (@bruno)
+```
+
+Grouping rules:
+
+- The prefix is the acronym before the first dash; it is stripped from the
+  entry since the group heading already says which project it is. Known
+  acronyms match case-insensitively.
+- All-caps prefixes that are **not** in the mapping still get their own group,
+  under the raw acronym, so PRs from a new project are not lost while the
+  mapping catches up.
+- PRs without a recognizable prefix land in a final group named by
+  `ungrouped-label` (default `Other`).
+- Groups appear in the order of the mapping, then unknown acronyms
+  alphabetically, then the ungrouped bucket.
+- When `groups` is empty (the default), the changelog is a flat list.
+
+### Customer-facing changelog
+
+PR titles are written for developers; customers deserve better. Authors can
+write customer-facing notes in the PR body, between markers pre-filled by a
+[PR template](.github/PULL_REQUEST_TEMPLATE.md):
+
+```markdown
+<!-- changelog:begin -->
+- Relatórios agora podem ser exportados em PDF.
+<!-- changelog:end -->
+```
+
+The action collects these notes into a second section of the release PR body
+(heading configurable via `customer-heading`), grouped by project like the
+dev changelog but rendered **clean** — no PR numbers, no authors — so each
+project block can be copied and sent to a client as-is:
+
+```markdown
+### Novidades
+
+#### Operação Terra Forte
+- Relatórios agora podem ser exportados em PDF.
+```
+
+Rules:
+
+- The **PR body is the source of truth**: to fix awkward copy, edit the PR's
+  changelog section (even after merge) and the release PR re-renders on the
+  next push to `dev` (or a manual `workflow_dispatch` run).
+- Write `interno` (or `skip`) between the markers — or leave them empty or
+  deleted — and the PR stays out of the customer section. It is always still
+  listed in the dev changelog.
+- Multiple bullets per PR are fine; plain lines are turned into bullets.
+- The template's instruction comment doesn't count as content, so untouched
+  templates are treated as "no notes".
+
+### Publishing GitHub Releases
+
+The companion `release/` action freezes the changelog when a release PR
+merges: it tags the merge commit with the version from the PR title and
+creates a GitHub Release whose body is the changelog block — a permanent,
+linkable record of what shipped.
+
+```yaml
+name: Publish Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [master]
+  workflow_dispatch:   # republish the latest release if a run was missed
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'dev')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: BrunoPanizzi/auto-pr/release@master
+```
+
+Publishing is idempotent (an existing release for the tag is left untouched)
+and entirely decoupled from deploys — no artifacts are involved unless you
+decide to attach some later.
 
 > [!IMPORTANT]
 > Merge the release PR with a **merge commit** (not squash), so that `master`
@@ -96,6 +206,10 @@ This repository dogfoods the action with `uses: ./` in
 | `base`            | `master`              | Production branch the release PR targets.               |
 | `head`            | `dev`                 | Staging branch the release PR comes from.               |
 | `initial-version` | `v0.1.0`              | Version of the very first release PR.                   |
+| `bump`            | `minor`               | Component bumped for new release PRs (`major`, `minor`, `patch`). |
+| `groups`          | _(empty)_             | Newline-separated `ACRONYM: Display name` mapping enabling grouped changelogs. |
+| `ungrouped-label` | `Other`               | Heading for PRs without a recognizable prefix (only used with `groups`). |
+| `customer-heading` | `Customer changelog` | Heading of the customer-facing section built from PR body notes. |
 
 ### Outputs
 

@@ -25,6 +25,31 @@ inputs:
       Version used for the very first release PR, when no previously merged
       release PR exists.
     default: 'v0.1.0'
+  bump:
+    description: >-
+      Version component bumped when creating a new release PR: major, minor,
+      or patch.
+    default: 'minor'
+  groups:
+    description: >-
+      Optional newline-separated mapping of PR title prefixes to display
+      names, e.g. "OTF: Operação Terra Forte". When set, changelog entries
+      are grouped by the acronym before the dash in each PR title, under the
+      mapped name. All-caps prefixes missing from the mapping get a group
+      under the raw acronym; when empty, the changelog is a flat list.
+    default: ''
+  ungrouped-label:
+    description: >-
+      Group heading used for PRs whose title has no recognizable prefix.
+      Only used when `groups` is set.
+    default: 'Other'
+  customer-heading:
+    description: >-
+      Heading of the customer-facing changelog section, built from the notes
+      authors write between `<!-- changelog:begin -->` and
+      `<!-- changelog:end -->` markers in PR bodies. The section is omitted
+      when no pending PR has notes.
+    default: 'Customer changelog'
 
 outputs:
   pr-number:
@@ -50,6 +75,10 @@ runs:
         INPUT_BASE: ${{ inputs.base }}
         INPUT_HEAD: ${{ inputs.head }}
         INPUT_INITIAL_VERSION: ${{ inputs.initial-version }}
+        INPUT_BUMP: ${{ inputs.bump }}
+        INPUT_GROUPS: ${{ inputs.groups }}
+        INPUT_UNGROUPED_LABEL: ${{ inputs.ungrouped-label }}
+        INPUT_CUSTOMER_HEADING: ${{ inputs.customer-heading }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |

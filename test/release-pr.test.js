@@ -5,9 +5,13 @@ const assert = require('node:assert/strict')
 
 const {
   parseVersion,
-  bumpPatch,
+  bump,
   formatVersion,
   prNumberFromCommitMessage,
+  parseGroups,
+  splitPrefix,
+  extractCustomerNotes,
+  extractAutoBlock,
   renderChangelog,
   spliceBody,
   initialBody,
@@ -33,10 +37,23 @@ test('parseVersion rejects non-versions', () => {
   assert.equal(parseVersion(null), null)
 })
 
-test('bumpPatch only touches the patch component', () => {
-  assert.equal(formatVersion(bumpPatch(parseVersion('v0.1.0'))), 'v0.1.1')
-  assert.equal(formatVersion(bumpPatch(parseVersion('v1.0.0'))), 'v1.0.1')
-  assert.equal(formatVersion(bumpPatch(parseVersion('v2.3.9'))), 'v2.3.10')
+test('bump minor increments minor and resets patch', () => {
+  assert.equal(formatVersion(bump(parseVersion('v0.1.0'), 'minor')), 'v0.2.0')
+  assert.equal(formatVersion(bump(parseVersion('v1.0.3'), 'minor')), 'v1.1.0')
+  assert.equal(formatVersion(bump(parseVersion('v2.9.9'), 'minor')), 'v2.10.0')
+})
+
+test('bump patch only touches the patch component', () => {
+  assert.equal(formatVersion(bump(parseVersion('v0.1.0'), 'patch')), 'v0.1.1')
+  assert.equal(formatVersion(bump(parseVersion('v2.3.9'), 'patch')), 'v2.3.10')
+})
+
+test('bump major resets minor and patch', () => {
+  assert.equal(formatVersion(bump(parseVersion('v1.4.2'), 'major')), 'v2.0.0')
+})
+
+test('bump rejects unknown levels', () => {
+  assert.throws(() => bump(parseVersion('v1.0.0'), 'huge'), /Invalid bump level "huge"/)
 })
 
 test('prNumberFromCommitMessage reads squash and merge commit messages', () => {
@@ -88,6 +105,188 @@ test('renderChangelog handles the empty case', () => {
   assert.match(changelog, /_No pending changes detected\._/)
 })
 
+test('parseGroups reads acronym mappings, skipping blanks and comments', () => {
+  const groups = parseGroups('OTF: Operação Terra Forte\n\n# comment\ninfra: Infraestrutura\n')
+  assert.deepEqual([...groups], [
+    ['OTF', 'Operação Terra Forte'],
+    ['INFRA', 'Infraestrutura'],
+  ])
+  assert.equal(parseGroups('').size, 0)
+  assert.equal(parseGroups(undefined).size, 0)
+})
+
+test('parseGroups rejects malformed lines', () => {
+  assert.throws(() => parseGroups('OTF Operação Terra Forte'), /Invalid groups line/)
+  assert.throws(() => parseGroups('OTF:'), /Invalid groups line/)
+  assert.throws(() => parseGroups(': nome'), /Invalid groups line/)
+})
+
+test('splitPrefix splits the acronym before the dash', () => {
+  assert.deepEqual(splitPrefix('OTF - Adiciona módulo de eventos'), {
+    acronym: 'OTF',
+    rest: 'Adiciona módulo de eventos',
+  })
+  assert.deepEqual(splitPrefix('INFRA- sem espaço'), { acronym: 'INFRA', rest: 'sem espaço' })
+  assert.equal(splitPrefix('Sem prefixo nenhum'), null)
+  assert.equal(splitPrefix('OTF - '), null)
+  assert.equal(splitPrefix('A - prefixo de uma letra'), null)
+})
+
+test('renderChangelog groups by prefix with mapped names, unknown acronyms, and ungrouped last', () => {
+  const groups = parseGroups('OTF: Operação Terra Forte\nINFRA: Infraestrutura')
+  const changelog = renderChangelog({
+    prs: [
+      { number: 1, title: 'Sem prefixo', author: 'a' },
+      { number: 2, title: 'OTF - Adiciona módulo de eventos', author: 'b' },
+      { number: 3, title: 'QA - Adiciona testes de fumaça', author: 'c' },
+      { number: 4, title: 'INFRA - Atualiza pipeline', author: 'd' },
+      { number: 5, title: 'OTF - Corrige relatório', author: 'e' },
+    ],
+    directCommits: [],
+    head: 'dev',
+    groups,
+    ungroupedLabel: 'Outros',
+  })
+  assert.equal(
+    changelog,
+    [
+      '<!-- auto-pr:begin -->',
+      '### Changes since last deploy',
+      '',
+      '#### Operação Terra Forte',
+      '- #2 Adiciona módulo de eventos (@b)',
+      '- #5 Corrige relatório (@e)',
+      '',
+      '#### Infraestrutura',
+      '- #4 Atualiza pipeline (@d)',
+      '',
+      '#### QA',
+      '- #3 Adiciona testes de fumaça (@c)',
+      '',
+      '#### Outros',
+      '- #1 Sem prefixo (@a)',
+      '',
+      '_5 pull requests · last updated from push to `dev`_',
+      '<!-- auto-pr:end -->',
+    ].join('\n')
+  )
+})
+
+test('renderChangelog leaves non-all-caps dash titles ungrouped and intact', () => {
+  const groups = parseGroups('OTF: Operação Terra Forte')
+  const changelog = renderChangelog({
+    prs: [{ number: 6, title: 'Fix - typo no readme', author: 'a' }],
+    directCommits: [],
+    head: 'dev',
+    groups,
+  })
+  assert.match(changelog, /#### Other\n- #6 Fix - typo no readme \(@a\)/)
+})
+
+test('renderChangelog matches known acronyms case-insensitively', () => {
+  const groups = parseGroups('OTF: Operação Terra Forte')
+  const changelog = renderChangelog({
+    prs: [{ number: 7, title: 'Otf - typo no acrônimo', author: 'a' }],
+    directCommits: [],
+    head: 'dev',
+    groups,
+  })
+  assert.match(changelog, /#### Operação Terra Forte\n- #7 typo no acrônimo \(@a\)/)
+})
+
+const CL = (inner) => `<!-- changelog:begin -->\n${inner}\n<!-- changelog:end -->`
+
+test('extractCustomerNotes reads bullets and normalizes plain lines', () => {
+  assert.deepEqual(extractCustomerNotes(CL('- Agora é possível exportar PDF\n* Novo painel de eventos')), [
+    '- Agora é possível exportar PDF',
+    '- Novo painel de eventos',
+  ])
+  assert.deepEqual(extractCustomerNotes(CL('Linha sem bullet')), ['- Linha sem bullet'])
+})
+
+test('extractCustomerNotes ignores the template instruction comment', () => {
+  const body = CL('<!-- O que muda para o cliente? Escreva em bullets abaixo desta linha,\n     ou escreva "interno". -->')
+  assert.equal(extractCustomerNotes(body), null)
+  const filled = CL('<!-- instrução -->\n- Nota real')
+  assert.deepEqual(extractCustomerNotes(filled), ['- Nota real'])
+})
+
+test('extractCustomerNotes returns null for missing, empty, or internal sections', () => {
+  assert.equal(extractCustomerNotes('no markers here'), null)
+  assert.equal(extractCustomerNotes(null), null)
+  assert.equal(extractCustomerNotes(CL('')), null)
+  assert.equal(extractCustomerNotes(CL('interno')), null)
+  assert.equal(extractCustomerNotes(CL('Interno.')), null)
+  assert.equal(extractCustomerNotes(CL('skip')), null)
+})
+
+test('extractAutoBlock returns the inner changelog block of a release PR body', () => {
+  const body = 'intro\n\n<!-- auto-pr:begin -->\n### Changes\n- x\n<!-- auto-pr:end -->\n\nfooter'
+  assert.equal(extractAutoBlock(body), '### Changes\n- x')
+  assert.equal(extractAutoBlock('nothing'), null)
+})
+
+test('renderChangelog adds a grouped customer section from PR notes', () => {
+  const groups = parseGroups('OTF: Operação Terra Forte\nINFRA: Infraestrutura')
+  const changelog = renderChangelog({
+    prs: [
+      { number: 1, title: 'OTF - Exporta relatórios', author: 'a', notes: ['- Relatórios podem ser exportados em PDF.'] },
+      { number: 2, title: 'INFRA - Otimiza cache', author: 'b', notes: null },
+      { number: 3, title: 'Ajustes gerais', author: 'c', notes: ['- Melhorias de desempenho.'] },
+    ],
+    directCommits: [],
+    head: 'dev',
+    groups,
+    ungroupedLabel: 'Outros',
+    customerHeading: 'Novidades',
+  })
+  const expected = [
+    '### Novidades',
+    '',
+    '#### Operação Terra Forte',
+    '- Relatórios podem ser exportados em PDF.',
+    '',
+    '#### Outros',
+    '- Melhorias de desempenho.',
+  ].join('\n')
+  assert.ok(changelog.includes(expected), `expected customer section in:\n${changelog}`)
+  assert.doesNotMatch(changelog, /Novidades[\s\S]*Otimiza cache/)
+  assert.doesNotMatch(changelog, /Novidades[\s\S]*#1/)
+  assert.doesNotMatch(changelog, /Novidades[\s\S]*@a/)
+})
+
+test('renderChangelog omits the customer section when no PR has notes', () => {
+  const changelog = renderChangelog({
+    prs: [{ number: 4, title: 'OTF - Sem nota', author: 'a', notes: null }],
+    directCommits: [],
+    head: 'dev',
+    groups: parseGroups('OTF: Operação Terra Forte'),
+    customerHeading: 'Novidades',
+  })
+  assert.doesNotMatch(changelog, /Novidades/)
+})
+
+test('renderChangelog renders flat customer notes without groups', () => {
+  const changelog = renderChangelog({
+    prs: [{ number: 5, title: 'Qualquer coisa', author: 'a', notes: ['- Nota simples.'] }],
+    directCommits: [],
+    head: 'dev',
+    groups: parseGroups(''),
+  })
+  assert.match(changelog, /### Customer changelog\n\n- Nota simples\./)
+})
+
+test('renderChangelog stays flat when no groups are configured', () => {
+  const changelog = renderChangelog({
+    prs: [{ number: 8, title: 'OTF - Continua plano', author: 'a' }],
+    directCommits: [],
+    head: 'dev',
+    groups: parseGroups(''),
+  })
+  assert.match(changelog, /- #8 OTF - Continua plano \(@a\)/)
+  assert.doesNotMatch(changelog, /####/)
+})
+
 test('spliceBody replaces only the marker-delimited section', () => {
   const body = [
     'Human intro, do not touch.',
@@ -129,5 +328,5 @@ test('spliceBody is idempotent', () => {
 test('initialBody wraps the changelog with heading and merge note', () => {
   const body = initialBody(`${MARKER_BEGIN}\nx\n${MARKER_END}`, 'master', 'dev')
   assert.match(body, /^## Pending release\n/)
-  assert.match(body, /Merge this PR with a \*\*merge commit\*\* so `master` fully catches up with `dev`\./)
+  assert.match(body, /Merge with a \*\*merge commit\*\* so `master` stays in sync with `dev`\./)
 })
