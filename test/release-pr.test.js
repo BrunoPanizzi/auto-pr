@@ -10,6 +10,8 @@ const {
   prNumberFromCommitMessage,
   parseGroups,
   splitPrefix,
+  extractCustomerNotes,
+  extractAutoBlock,
   renderChangelog,
   spliceBody,
   initialBody,
@@ -190,6 +192,88 @@ test('renderChangelog matches known acronyms case-insensitively', () => {
     groups,
   })
   assert.match(changelog, /#### Operação Terra Forte\n- #7 typo no acrônimo \(@a\)/)
+})
+
+const CL = (inner) => `<!-- changelog:begin -->\n${inner}\n<!-- changelog:end -->`
+
+test('extractCustomerNotes reads bullets and normalizes plain lines', () => {
+  assert.deepEqual(extractCustomerNotes(CL('- Agora é possível exportar PDF\n* Novo painel de eventos')), [
+    '- Agora é possível exportar PDF',
+    '- Novo painel de eventos',
+  ])
+  assert.deepEqual(extractCustomerNotes(CL('Linha sem bullet')), ['- Linha sem bullet'])
+})
+
+test('extractCustomerNotes ignores the template instruction comment', () => {
+  const body = CL('<!-- O que muda para o cliente? Escreva em bullets abaixo desta linha,\n     ou escreva "interno". -->')
+  assert.equal(extractCustomerNotes(body), null)
+  const filled = CL('<!-- instrução -->\n- Nota real')
+  assert.deepEqual(extractCustomerNotes(filled), ['- Nota real'])
+})
+
+test('extractCustomerNotes returns null for missing, empty, or internal sections', () => {
+  assert.equal(extractCustomerNotes('no markers here'), null)
+  assert.equal(extractCustomerNotes(null), null)
+  assert.equal(extractCustomerNotes(CL('')), null)
+  assert.equal(extractCustomerNotes(CL('interno')), null)
+  assert.equal(extractCustomerNotes(CL('Interno.')), null)
+  assert.equal(extractCustomerNotes(CL('skip')), null)
+})
+
+test('extractAutoBlock returns the inner changelog block of a release PR body', () => {
+  const body = 'intro\n\n<!-- auto-pr:begin -->\n### Changes\n- x\n<!-- auto-pr:end -->\n\nfooter'
+  assert.equal(extractAutoBlock(body), '### Changes\n- x')
+  assert.equal(extractAutoBlock('nothing'), null)
+})
+
+test('renderChangelog adds a grouped customer section from PR notes', () => {
+  const groups = parseGroups('OTF: Operação Terra Forte\nINFRA: Infraestrutura')
+  const changelog = renderChangelog({
+    prs: [
+      { number: 1, title: 'OTF - Exporta relatórios', author: 'a', notes: ['- Relatórios podem ser exportados em PDF.'] },
+      { number: 2, title: 'INFRA - Otimiza cache', author: 'b', notes: null },
+      { number: 3, title: 'Ajustes gerais', author: 'c', notes: ['- Melhorias de desempenho.'] },
+    ],
+    directCommits: [],
+    head: 'dev',
+    groups,
+    ungroupedLabel: 'Outros',
+    customerHeading: 'Novidades',
+  })
+  const expected = [
+    '### Novidades',
+    '',
+    '#### Operação Terra Forte',
+    '- Relatórios podem ser exportados em PDF.',
+    '',
+    '#### Outros',
+    '- Melhorias de desempenho.',
+  ].join('\n')
+  assert.ok(changelog.includes(expected), `expected customer section in:\n${changelog}`)
+  assert.doesNotMatch(changelog, /Novidades[\s\S]*Otimiza cache/)
+  assert.doesNotMatch(changelog, /Novidades[\s\S]*#1/)
+  assert.doesNotMatch(changelog, /Novidades[\s\S]*@a/)
+})
+
+test('renderChangelog omits the customer section when no PR has notes', () => {
+  const changelog = renderChangelog({
+    prs: [{ number: 4, title: 'OTF - Sem nota', author: 'a', notes: null }],
+    directCommits: [],
+    head: 'dev',
+    groups: parseGroups('OTF: Operação Terra Forte'),
+    customerHeading: 'Novidades',
+  })
+  assert.doesNotMatch(changelog, /Novidades/)
+})
+
+test('renderChangelog renders flat customer notes without groups', () => {
+  const changelog = renderChangelog({
+    prs: [{ number: 5, title: 'Qualquer coisa', author: 'a', notes: ['- Nota simples.'] }],
+    directCommits: [],
+    head: 'dev',
+    groups: parseGroups(''),
+  })
+  assert.match(changelog, /### Customer changelog\n\n- Nota simples\./)
 })
 
 test('renderChangelog stays flat when no groups are configured', () => {

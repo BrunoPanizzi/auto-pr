@@ -1,0 +1,27 @@
+name: Publish Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [master]
+  # Manual escape hatch: republishes the most recently merged release PR
+  # (no-op if its release already exists).
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'dev')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: publish
+        uses: ./release
+
+      - name: Summary
+        if: steps.publish.outputs.tag != ''
+        run: |
+          echo "Release: ${{ steps.publish.outputs.release-url }} (${{ steps.publish.outputs.tag }})" >> "$GITHUB_STEP_SUMMARY"

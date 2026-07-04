@@ -43,6 +43,13 @@ inputs:
       Group heading used for PRs whose title has no recognizable prefix.
       Only used when `groups` is set.
     default: 'Other'
+  customer-heading:
+    description: >-
+      Heading of the customer-facing changelog section, built from the notes
+      authors write between `<!-- changelog:begin -->` and
+      `<!-- changelog:end -->` markers in PR bodies. The section is omitted
+      when no pending PR has notes.
+    default: 'Customer changelog'
 
 outputs:
   pr-number:
@@ -71,6 +78,7 @@ runs:
         INPUT_BUMP: ${{ inputs.bump }}
         INPUT_GROUPS: ${{ inputs.groups }}
         INPUT_UNGROUPED_LABEL: ${{ inputs.ungrouped-label }}
+        INPUT_CUSTOMER_HEADING: ${{ inputs.customer-heading }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |

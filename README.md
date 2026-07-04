@@ -90,6 +90,74 @@ Grouping rules:
   alphabetically, then the ungrouped bucket.
 - When `groups` is empty (the default), the changelog is a flat list.
 
+### Customer-facing changelog
+
+PR titles are written for developers; customers deserve better. Authors can
+write customer-facing notes in the PR body, between markers pre-filled by a
+[PR template](.github/PULL_REQUEST_TEMPLATE.md):
+
+```markdown
+<!-- changelog:begin -->
+- Relatórios agora podem ser exportados em PDF.
+<!-- changelog:end -->
+```
+
+The action collects these notes into a second section of the release PR body
+(heading configurable via `customer-heading`), grouped by project like the
+dev changelog but rendered **clean** — no PR numbers, no authors — so each
+project block can be copied and sent to a client as-is:
+
+```markdown
+### Novidades
+
+#### Operação Terra Forte
+- Relatórios agora podem ser exportados em PDF.
+```
+
+Rules:
+
+- The **PR body is the source of truth**: to fix awkward copy, edit the PR's
+  changelog section (even after merge) and the release PR re-renders on the
+  next push to `dev` (or a manual `workflow_dispatch` run).
+- Write `interno` (or `skip`) between the markers — or leave them empty or
+  deleted — and the PR stays out of the customer section. It is always still
+  listed in the dev changelog.
+- Multiple bullets per PR are fine; plain lines are turned into bullets.
+- The template's instruction comment doesn't count as content, so untouched
+  templates are treated as "no notes".
+
+### Publishing GitHub Releases
+
+The companion `release/` action freezes the changelog when a release PR
+merges: it tags the merge commit with the version from the PR title and
+creates a GitHub Release whose body is the changelog block — a permanent,
+linkable record of what shipped.
+
+```yaml
+name: Publish Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [master]
+  workflow_dispatch:   # republish the latest release if a run was missed
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'dev')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: BrunoPanizzi/auto-pr/release@master
+```
+
+Publishing is idempotent (an existing release for the tag is left untouched)
+and entirely decoupled from deploys — no artifacts are involved unless you
+decide to attach some later.
+
 > [!IMPORTANT]
 > Merge the release PR with a **merge commit** (not squash), so that `master`
 > ends up containing `dev`'s commits. Squash-merging would leave the two
@@ -141,6 +209,7 @@ This repository dogfoods the action with `uses: ./` in
 | `bump`            | `minor`               | Component bumped for new release PRs (`major`, `minor`, `patch`). |
 | `groups`          | _(empty)_             | Newline-separated `ACRONYM: Display name` mapping enabling grouped changelogs. |
 | `ungrouped-label` | `Other`               | Heading for PRs without a recognizable prefix (only used with `groups`). |
+| `customer-heading` | `Customer changelog` | Heading of the customer-facing section built from PR body notes. |
 
 ### Outputs
 
