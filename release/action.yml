@@ -1,0 +1,46 @@
+name: 'auto-pr publish release'
+description: >-
+  Publishes a GitHub Release (version tag + frozen changelog) from a merged
+  release PR created by the auto-pr action. Trigger it on closed pull
+  requests targeting the production branch; non-release and unmerged PRs are
+  ignored, and workflow_dispatch reruns republish the latest release safely.
+author: 'BrunoPanizzi'
+branding:
+  icon: 'tag'
+  color: 'purple'
+
+inputs:
+  github-token:
+    description: >-
+      Token used to read the merged release PR and create the tag + release.
+      Needs `contents: write`.
+    default: ${{ github.token }}
+  base:
+    description: 'Production branch the release PR targets.'
+    default: 'master'
+  head:
+    description: 'Staging branch the release PR comes from.'
+    default: 'dev'
+
+outputs:
+  release-url:
+    description: 'URL of the published (or already existing) GitHub Release.'
+    value: ${{ steps.publish.outputs.release-url }}
+  tag:
+    description: 'Version tag of the release, e.g. v1.2.0.'
+    value: ${{ steps.publish.outputs.tag }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: publish
+      uses: actions/github-script@v7
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_HEAD: ${{ inputs.head }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const { publishRelease } = require(process.env.ACTION_PATH + '/../src/release-pr.js')
+          await publishRelease({ github, context, core })

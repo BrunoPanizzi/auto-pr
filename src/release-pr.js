@@ -15,6 +15,15 @@
 const MARKER_BEGIN = '<!-- auto-pr:begin -->'
 const MARKER_END = '<!-- auto-pr:end -->'
 
+// Markers pre-filled into PR bodies by the PR template; authors write the
+// customer-facing changelog lines between them.
+const CHANGELOG_BEGIN = '<!-- changelog:begin -->'
+const CHANGELOG_END = '<!-- changelog:end -->'
+
+// What an author writes between the changelog markers to say "this PR is not
+// customer-visible" (trailing punctuation ignored).
+const INTERNAL_NOTE_WORDS = new Set(['interno', 'internal', 'skip'])
+
 const SEMVER_RE = /v?(\d+)\.(\d+)\.(\d+)/
 
 // Squash merges produce "Title (#N)" first lines; merge commits produce
@@ -72,47 +81,108 @@ function splitPrefix(title) {
   return { acronym: m[1], rest: m[2].trim() }
 }
 
-function renderChangelog({ prs, directCommits, head, groups, ungroupedLabel = 'Other' }) {
+// Extracts the customer-facing notes an author wrote between the changelog
+// markers of a PR body. Returns normalized bullet lines, or null when there
+// is nothing customer-visible: markers missing, section empty (the template's
+// instruction comment does not count), or explicitly marked internal.
+function extractCustomerNotes(body) {
+  const text = body || ''
+  const begin = text.indexOf(CHANGELOG_BEGIN)
+  const end = text.indexOf(CHANGELOG_END)
+  if (begin === -1 || end === -1 || end < begin) return null
+  const inner = text
+    .slice(begin + CHANGELOG_BEGIN.length, end)
+    .replace(/<!--[\s\S]*?-->/g, '')
+  const lines = inner
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length === 0) return null
+  if (lines.length === 1 && INTERNAL_NOTE_WORDS.has(lines[0].toLowerCase().replace(/[.!]+$/, ''))) {
+    return null
+  }
+  return lines.map((line) => `- ${line.replace(/^[-*]\s+/, '')}`)
+}
+
+// Content of the auto-managed block of a release PR body, without the
+// markers. Used to freeze the changelog into a GitHub Release on merge.
+function extractAutoBlock(body) {
+  const text = body || ''
+  const begin = text.indexOf(MARKER_BEGIN)
+  const end = text.indexOf(MARKER_END)
+  if (begin === -1 || end === -1 || end < begin) return null
+  return text.slice(begin + MARKER_BEGIN.length, end).trim()
+}
+
+// Distributes PRs into ordered [label, prs] sections: mapped groups first (in
+// mapping order), unknown all-caps acronyms alphabetically, ungrouped last.
+// Each PR gains a displayTitle with the acronym prefix stripped when grouped.
+function bucketByProject(prs, groups, ungroupedLabel) {
+  const items = new Map()
+  const unknownAcronyms = new Set()
+  const add = (label, item) => {
+    if (!items.has(label)) items.set(label, [])
+    items.get(label).push(item)
+  }
+  for (const pr of prs) {
+    const split = splitPrefix(pr.title)
+    const key = split ? split.acronym.toUpperCase() : null
+    if (split && groups.has(key)) {
+      add(groups.get(key), { ...pr, displayTitle: split.rest })
+    } else if (split && split.acronym === key) {
+      // All-caps prefix that is not in the mapping yet: group it under the
+      // raw acronym rather than losing it among the ungrouped PRs.
+      unknownAcronyms.add(key)
+      add(key, { ...pr, displayTitle: split.rest })
+    } else {
+      add(ungroupedLabel, { ...pr, displayTitle: pr.title })
+    }
+  }
+  const order = [...new Set([...groups.values(), ...[...unknownAcronyms].sort(), ungroupedLabel])]
+  return order.filter((label) => items.has(label)).map((label) => [label, items.get(label)])
+}
+
+function renderChangelog({
+  prs,
+  directCommits,
+  head,
+  groups,
+  ungroupedLabel = 'Other',
+  customerHeading = 'Customer changelog',
+}) {
   const entry = (pr, title) => `- #${pr.number} ${title} (@${pr.author})`
+  const grouped = groups && groups.size > 0
   const lines = [MARKER_BEGIN, '### Changes since last deploy', '']
   if (prs.length === 0 && directCommits.length === 0) {
     lines.push('_No pending changes detected._')
-  } else if (!groups || groups.size === 0) {
+  } else if (!grouped) {
     for (const pr of prs) {
       lines.push(entry(pr, pr.title))
     }
   } else {
-    const buckets = new Map()
-    const add = (label, line) => {
-      if (!buckets.has(label)) buckets.set(label, [])
-      buckets.get(label).push(line)
-    }
-    const unknownAcronyms = new Set()
-    for (const pr of prs) {
-      const split = splitPrefix(pr.title)
-      const key = split ? split.acronym.toUpperCase() : null
-      if (split && groups.has(key)) {
-        add(groups.get(key), entry(pr, split.rest))
-      } else if (split && split.acronym === key) {
-        // All-caps prefix that is not in the mapping yet: group it under the
-        // raw acronym rather than losing it among the ungrouped PRs.
-        unknownAcronyms.add(key)
-        add(key, entry(pr, split.rest))
-      } else {
-        add(ungroupedLabel, entry(pr, pr.title))
-      }
-    }
-    const order = [...new Set([...groups.values(), ...[...unknownAcronyms].sort(), ungroupedLabel])]
-    const sections = order.filter((label) => buckets.has(label))
-    for (const [i, label] of sections.entries()) {
+    for (const [i, [label, list]] of bucketByProject(prs, groups, ungroupedLabel).entries()) {
       if (i > 0) lines.push('')
-      lines.push(`#### ${label}`, ...buckets.get(label))
+      lines.push(`#### ${label}`, ...list.map((pr) => entry(pr, pr.displayTitle)))
     }
   }
   if (directCommits.length > 0) {
     lines.push('', 'Commits without a pull request:')
     for (const commit of directCommits) {
       lines.push(`- ${commit.sha.slice(0, 7)} ${commit.message}`)
+    }
+  }
+  // Customer-facing section: only PRs whose authors wrote notes, rendered
+  // clean (no PR numbers or authors) so each project block can be sent as-is.
+  const withNotes = prs.filter((pr) => pr.notes && pr.notes.length > 0)
+  if (withNotes.length > 0) {
+    lines.push('', `### ${customerHeading}`, '')
+    if (!grouped) {
+      lines.push(...withNotes.flatMap((pr) => pr.notes))
+    } else {
+      for (const [i, [label, list]] of bucketByProject(withNotes, groups, ungroupedLabel).entries()) {
+        if (i > 0) lines.push('')
+        lines.push(`#### ${label}`, ...list.flatMap((pr) => pr.notes))
+      }
     }
   }
   const count = `${prs.length} pull request${prs.length === 1 ? '' : 's'}`
@@ -202,6 +272,7 @@ async function collectPendingChanges({ github, owner, repo, base, head }) {
           title: pr.title,
           author: pr.user ? pr.user.login : 'unknown',
           mergedAt: pr.merged_at,
+          notes: extractCustomerNotes(pr.body),
         })
       }
     }
@@ -244,11 +315,12 @@ async function main({ github, context, core }) {
   }
   const groups = parseGroups(process.env.INPUT_GROUPS)
   const ungroupedLabel = process.env.INPUT_UNGROUPED_LABEL || 'Other'
+  const customerHeading = process.env.INPUT_CUSTOMER_HEADING || 'Customer changelog'
   const { owner, repo } = context.repo
 
   const { prs, directCommits } = await collectPendingChanges({ github, owner, repo, base, head })
   core.info(`${prs.length} merged PR(s) and ${directCommits.length} direct commit(s) pending on ${head}`)
-  const changelog = renderChangelog({ prs, directCommits, head, groups, ungroupedLabel })
+  const changelog = renderChangelog({ prs, directCommits, head, groups, ungroupedLabel, customerHeading })
 
   const open = await github.rest.pulls.list({
     owner,
@@ -300,14 +372,87 @@ async function main({ github, context, core }) {
   core.setOutput('created', String(created))
 }
 
+// The most recently merged head -> base PR, with full body (unlike main(),
+// which only needs titles). Used by the workflow_dispatch republish path.
+async function latestMergedReleasePR({ github, owner, repo, base, head }) {
+  const closed = await github.paginate(github.rest.pulls.list, {
+    owner,
+    repo,
+    state: 'closed',
+    base,
+    head: `${owner}:${head}`,
+    per_page: 100,
+  })
+  const merged = closed
+    .filter((pr) => pr.merged_at)
+    .sort((a, b) => (a.merged_at < b.merged_at ? 1 : -1))
+  return merged[0] || null
+}
+
+// Entry point of the release/ sub-action: when a release PR merges, tag the
+// merge commit with the PR title's version and publish a GitHub Release whose
+// body is the frozen changelog block. Idempotent: an existing release for the
+// tag is left untouched, so workflow_dispatch reruns are safe.
+async function publishRelease({ github, context, core }) {
+  const base = process.env.INPUT_BASE || 'master'
+  const head = process.env.INPUT_HEAD || 'dev'
+  const { owner, repo } = context.repo
+
+  let pr = context.payload.pull_request
+  if (pr && !(pr.merged && pr.base.ref === base && pr.head.ref === head)) {
+    core.info('Event pull request is not a merged release PR; nothing to publish')
+    return
+  }
+  if (!pr) {
+    pr = await latestMergedReleasePR({ github, owner, repo, base, head })
+    if (!pr) {
+      core.info(`No merged ${head} -> ${base} PR found; nothing to publish`)
+      return
+    }
+  }
+
+  const version = parseVersion(pr.title)
+  if (!version) {
+    core.warning(`Could not parse a version from release PR title "${pr.title}"; skipping release`)
+    return
+  }
+  const tag = formatVersion(version)
+
+  try {
+    const existing = await github.rest.repos.getReleaseByTag({ owner, repo, tag })
+    core.info(`Release ${tag} already exists: ${existing.data.html_url}`)
+    core.setOutput('release-url', existing.data.html_url)
+    core.setOutput('tag', tag)
+    return
+  } catch (err) {
+    if (err.status !== 404) throw err
+  }
+
+  const body = extractAutoBlock(pr.body) || pr.body || ''
+  const release = await github.rest.repos.createRelease({
+    owner,
+    repo,
+    tag_name: tag,
+    name: tag,
+    target_commitish: pr.merge_commit_sha,
+    body,
+  })
+  core.info(`Published release ${tag} from PR #${pr.number}: ${release.data.html_url}`)
+  core.setOutput('release-url', release.data.html_url)
+  core.setOutput('tag', tag)
+}
+
 module.exports = {
   main,
+  publishRelease,
   parseVersion,
   bump,
   formatVersion,
   prNumberFromCommitMessage,
   parseGroups,
   splitPrefix,
+  extractCustomerNotes,
+  extractAutoBlock,
   renderChangelog,
   spliceBody,
   initialBody,
