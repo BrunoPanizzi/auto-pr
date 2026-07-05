@@ -2,7 +2,8 @@ name: 'auto-pr release PR'
 description: >-
   Keeps an always-open release pull request from a staging branch to a
   production branch, with an auto-updated changelog of everything not yet
-  deployed and an automatic patch version bump.
+  deployed, a customer-facing changelog section, and an automatic version
+  bump.
 author: 'BrunoPanizzi'
 branding:
   icon: 'git-pull-request'
@@ -54,33 +55,13 @@ inputs:
 outputs:
   pr-number:
     description: 'Number of the open release PR (empty if there was nothing to release).'
-    value: ${{ steps.release-pr.outputs.pr-number }}
   pr-url:
     description: 'URL of the open release PR (empty if there was nothing to release).'
-    value: ${{ steps.release-pr.outputs.pr-url }}
   version:
     description: 'Current title of the release PR, human edits included.'
-    value: ${{ steps.release-pr.outputs.version }}
   created:
     description: 'Whether this run created the release PR (true) or updated an existing one (false).'
-    value: ${{ steps.release-pr.outputs.created }}
 
 runs:
-  using: 'composite'
-  steps:
-    - id: release-pr
-      uses: actions/github-script@v7
-      env:
-        ACTION_PATH: ${{ github.action_path }}
-        INPUT_BASE: ${{ inputs.base }}
-        INPUT_HEAD: ${{ inputs.head }}
-        INPUT_INITIAL_VERSION: ${{ inputs.initial-version }}
-        INPUT_BUMP: ${{ inputs.bump }}
-        INPUT_GROUPS: ${{ inputs.groups }}
-        INPUT_UNGROUPED_LABEL: ${{ inputs.ungrouped-label }}
-        INPUT_CUSTOMER_HEADING: ${{ inputs.customer-heading }}
-      with:
-        github-token: ${{ inputs.github-token }}
-        script: |
-          const { main } = require(process.env.ACTION_PATH + '/src/release-pr.js')
-          await main({ github, context, core })
+  using: 'node24'
+  main: 'dist/index.cjs'

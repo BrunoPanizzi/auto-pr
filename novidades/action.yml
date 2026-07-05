@@ -30,22 +30,9 @@ inputs:
 outputs:
   updated:
     description: 'Whether the PR body was changed (false if it already matched).'
-    value: ${{ steps.command.outputs.updated }}
   pr-number:
     description: 'Number of the PR whose body was targeted.'
-    value: ${{ steps.command.outputs.pr-number }}
 
 runs:
-  using: 'composite'
-  steps:
-    - id: command
-      uses: actions/github-script@v7
-      env:
-        ACTION_PATH: ${{ github.action_path }}
-        INPUT_COMMAND: ${{ inputs.command }}
-        INPUT_HEADING: ${{ inputs.heading }}
-      with:
-        github-token: ${{ inputs.github-token }}
-        script: |
-          const { applyNovidadesCommand } = require(process.env.ACTION_PATH + '/../src/release-pr.js')
-          await applyNovidadesCommand({ github, context, core })
+  using: 'node24'
+  main: 'dist/index.cjs'

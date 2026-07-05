@@ -1,24 +1,29 @@
-'use strict'
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
 
-const { test } = require('node:test')
-const assert = require('node:assert/strict')
-
-const {
-  parseVersion,
-  bump,
-  formatVersion,
-  prNumberFromCommitMessage,
-  parseGroups,
-  splitPrefix,
-  extractCustomerNotes,
-  extractAutoBlock,
-  upsertCustomerSection,
-  renderChangelog,
-  spliceBody,
-  initialBody,
+import {
   MARKER_BEGIN,
   MARKER_END,
-} = require('../src/release-pr.js')
+  bump,
+  extractAutoBlock,
+  extractCustomerNotes,
+  formatVersion,
+  initialBody,
+  parseGroups,
+  parseVersion,
+  prNumberFromCommitMessage,
+  renderChangelog,
+  spliceBody,
+  splitPrefix,
+  upsertCustomerSection,
+  type Version,
+} from './lib.ts'
+
+const v = (text: string): Version => {
+  const parsed = parseVersion(text)
+  assert.ok(parsed, `expected "${text}" to parse`)
+  return parsed
+}
 
 test('parseVersion reads plain and v-prefixed versions', () => {
   assert.deepEqual(parseVersion('v0.1.0'), { major: 0, minor: 1, patch: 0 })
@@ -39,22 +44,22 @@ test('parseVersion rejects non-versions', () => {
 })
 
 test('bump minor increments minor and resets patch', () => {
-  assert.equal(formatVersion(bump(parseVersion('v0.1.0'), 'minor')), 'v0.2.0')
-  assert.equal(formatVersion(bump(parseVersion('v1.0.3'), 'minor')), 'v1.1.0')
-  assert.equal(formatVersion(bump(parseVersion('v2.9.9'), 'minor')), 'v2.10.0')
+  assert.equal(formatVersion(bump(v('v0.1.0'), 'minor')), 'v0.2.0')
+  assert.equal(formatVersion(bump(v('v1.0.3'), 'minor')), 'v1.1.0')
+  assert.equal(formatVersion(bump(v('v2.9.9'), 'minor')), 'v2.10.0')
 })
 
 test('bump patch only touches the patch component', () => {
-  assert.equal(formatVersion(bump(parseVersion('v0.1.0'), 'patch')), 'v0.1.1')
-  assert.equal(formatVersion(bump(parseVersion('v2.3.9'), 'patch')), 'v2.3.10')
+  assert.equal(formatVersion(bump(v('v0.1.0'), 'patch')), 'v0.1.1')
+  assert.equal(formatVersion(bump(v('v2.3.9'), 'patch')), 'v2.3.10')
 })
 
 test('bump major resets minor and patch', () => {
-  assert.equal(formatVersion(bump(parseVersion('v1.4.2'), 'major')), 'v2.0.0')
+  assert.equal(formatVersion(bump(v('v1.4.2'), 'major')), 'v2.0.0')
 })
 
 test('bump rejects unknown levels', () => {
-  assert.throws(() => bump(parseVersion('v1.0.0'), 'huge'), /Invalid bump level "huge"/)
+  assert.throws(() => bump(v('v1.0.0'), 'huge'), /Invalid bump level "huge"/)
 })
 
 test('prNumberFromCommitMessage reads squash and merge commit messages', () => {
@@ -69,8 +74,8 @@ test('prNumberFromCommitMessage reads squash and merge commit messages', () => {
 test('renderChangelog lists PRs with number, title, and author', () => {
   const changelog = renderChangelog({
     prs: [
-      { number: 12, title: 'Add user login', author: 'bruno' },
-      { number: 14, title: 'Fix cart total rounding', author: 'bruno' },
+      { number: 12, title: 'Add user login', author: 'bruno', mergedAt: '', notes: null },
+      { number: 14, title: 'Fix cart total rounding', author: 'bruno', mergedAt: '', notes: null },
     ],
     directCommits: [],
     head: 'dev',
@@ -92,7 +97,7 @@ test('renderChangelog lists PRs with number, title, and author', () => {
 
 test('renderChangelog uses singular for one PR and lists direct commits', () => {
   const changelog = renderChangelog({
-    prs: [{ number: 3, title: 'One thing', author: 'bruno' }],
+    prs: [{ number: 3, title: 'One thing', author: 'bruno', mergedAt: '', notes: null }],
     directCommits: [{ sha: 'abcdef1234567890', message: 'quick fix on dev' }],
     head: 'dev',
   })
@@ -108,10 +113,13 @@ test('renderChangelog handles the empty case', () => {
 
 test('parseGroups reads acronym mappings, skipping blanks and comments', () => {
   const groups = parseGroups('OTF: Operação Terra Forte\n\n# comment\ninfra: Infraestrutura\n')
-  assert.deepEqual([...groups], [
-    ['OTF', 'Operação Terra Forte'],
-    ['INFRA', 'Infraestrutura'],
-  ])
+  assert.deepEqual(
+    [...groups],
+    [
+      ['OTF', 'Operação Terra Forte'],
+      ['INFRA', 'Infraestrutura'],
+    ]
+  )
   assert.equal(parseGroups('').size, 0)
   assert.equal(parseGroups(undefined).size, 0)
 })
@@ -137,11 +145,11 @@ test('renderChangelog groups by prefix with mapped names, unknown acronyms, and 
   const groups = parseGroups('OTF: Operação Terra Forte\nINFRA: Infraestrutura')
   const changelog = renderChangelog({
     prs: [
-      { number: 1, title: 'Sem prefixo', author: 'a' },
-      { number: 2, title: 'OTF - Adiciona módulo de eventos', author: 'b' },
-      { number: 3, title: 'QA - Adiciona testes de fumaça', author: 'c' },
-      { number: 4, title: 'INFRA - Atualiza pipeline', author: 'd' },
-      { number: 5, title: 'OTF - Corrige relatório', author: 'e' },
+      { number: 1, title: 'Sem prefixo', author: 'a', mergedAt: '', notes: null },
+      { number: 2, title: 'OTF - Adiciona módulo de eventos', author: 'b', mergedAt: '', notes: null },
+      { number: 3, title: 'QA - Adiciona testes de fumaça', author: 'c', mergedAt: '', notes: null },
+      { number: 4, title: 'INFRA - Atualiza pipeline', author: 'd', mergedAt: '', notes: null },
+      { number: 5, title: 'OTF - Corrige relatório', author: 'e', mergedAt: '', notes: null },
     ],
     directCommits: [],
     head: 'dev',
@@ -151,7 +159,7 @@ test('renderChangelog groups by prefix with mapped names, unknown acronyms, and 
   assert.equal(
     changelog,
     [
-      '<!-- auto-pr:begin -->',
+      MARKER_BEGIN,
       '### Changes since last deploy',
       '',
       '#### Operação Terra Forte',
@@ -168,7 +176,7 @@ test('renderChangelog groups by prefix with mapped names, unknown acronyms, and 
       '- #1 Sem prefixo (@a)',
       '',
       '_5 pull requests · last updated from push to `dev`_',
-      '<!-- auto-pr:end -->',
+      MARKER_END,
     ].join('\n')
   )
 })
@@ -176,7 +184,7 @@ test('renderChangelog groups by prefix with mapped names, unknown acronyms, and 
 test('renderChangelog leaves non-all-caps dash titles ungrouped and intact', () => {
   const groups = parseGroups('OTF: Operação Terra Forte')
   const changelog = renderChangelog({
-    prs: [{ number: 6, title: 'Fix - typo no readme', author: 'a' }],
+    prs: [{ number: 6, title: 'Fix - typo no readme', author: 'a', mergedAt: '', notes: null }],
     directCommits: [],
     head: 'dev',
     groups,
@@ -187,7 +195,7 @@ test('renderChangelog leaves non-all-caps dash titles ungrouped and intact', () 
 test('renderChangelog matches known acronyms case-insensitively', () => {
   const groups = parseGroups('OTF: Operação Terra Forte')
   const changelog = renderChangelog({
-    prs: [{ number: 7, title: 'Otf - typo no acrônimo', author: 'a' }],
+    prs: [{ number: 7, title: 'Otf - typo no acrônimo', author: 'a', mergedAt: '', notes: null }],
     directCommits: [],
     head: 'dev',
     groups,
@@ -195,7 +203,7 @@ test('renderChangelog matches known acronyms case-insensitively', () => {
   assert.match(changelog, /#### Operação Terra Forte\n- #7 typo no acrônimo \(@a\)/)
 })
 
-const CL = (inner) => `<!-- changelog:begin -->\n${inner}\n<!-- changelog:end -->`
+const CL = (inner: string): string => `<!-- changelog:begin -->\n${inner}\n<!-- changelog:end -->`
 
 test('extractCustomerNotes reads bullets and normalizes plain lines', () => {
   assert.deepEqual(extractCustomerNotes(CL('- Agora é possível exportar PDF\n* Novo painel de eventos')), [
@@ -206,7 +214,9 @@ test('extractCustomerNotes reads bullets and normalizes plain lines', () => {
 })
 
 test('extractCustomerNotes ignores the template instruction comment', () => {
-  const body = CL('<!-- O que muda para o cliente? Escreva em bullets abaixo desta linha,\n     ou escreva "interno". -->')
+  const body = CL(
+    '<!-- O que muda para o cliente? Escreva em bullets abaixo desta linha,\n     ou escreva "interno". -->'
+  )
   assert.equal(extractCustomerNotes(body), null)
   const filled = CL('<!-- instrução -->\n- Nota real')
   assert.deepEqual(extractCustomerNotes(filled), ['- Nota real'])
@@ -238,12 +248,14 @@ test('upsertCustomerSection replaces existing marker content and keeps surroundi
 
 test('upsertCustomerSection keeps a lone interno bare so the opt-out still works', () => {
   const next = upsertCustomerSection('corpo', 'interno')
+  assert.ok(next)
   assert.match(next, /<!-- changelog:begin -->\ninterno\n<!-- changelog:end -->/)
   assert.equal(extractCustomerNotes(next), null)
 })
 
 test('upsertCustomerSection with no text inserts the empty template section once', () => {
   const next = upsertCustomerSection('corpo', '')
+  assert.ok(next)
   assert.match(next, /<!-- changelog:begin -->\n<!-- O que muda para o cliente\?/)
   assert.equal(extractCustomerNotes(next), null)
   assert.equal(upsertCustomerSection(next, ''), null)
@@ -251,6 +263,7 @@ test('upsertCustomerSection with no text inserts the empty template section once
 
 test('upsertCustomerSection returns null when the section already matches', () => {
   const once = upsertCustomerSection('corpo', 'mesma nota')
+  assert.ok(once)
   assert.equal(upsertCustomerSection(once, 'mesma nota'), null)
 })
 
@@ -261,13 +274,15 @@ test('upsertCustomerSection prepends the heading when creating the section', () 
     'corpo\n\n## Novidades 🎉\n\n<!-- changelog:begin -->\n- Nova nota\n<!-- changelog:end -->\n'
   )
   const bare = upsertCustomerSection('corpo', '', '## Novidades 🎉')
+  assert.ok(bare)
   assert.match(bare, /## Novidades 🎉\n\n<!-- changelog:begin -->\n<!-- O que muda para o cliente\?/)
 })
 
 test('upsertCustomerSection never duplicates the heading when replacing content', () => {
   const body = '## Novidades 🎉\n\n<!-- changelog:begin -->\n- nota velha\n<!-- changelog:end -->\n'
   const next = upsertCustomerSection(body, 'nota nova', '## Novidades 🎉')
-  assert.equal((next.match(/## Novidades 🎉/g) || []).length, 1)
+  assert.ok(next)
+  assert.equal((next.match(/## Novidades 🎉/g) ?? []).length, 1)
   assert.match(next, /- nota nova/)
 })
 
@@ -286,9 +301,15 @@ test('renderChangelog adds a grouped customer section from PR notes', () => {
   const groups = parseGroups('OTF: Operação Terra Forte\nINFRA: Infraestrutura')
   const changelog = renderChangelog({
     prs: [
-      { number: 1, title: 'OTF - Exporta relatórios', author: 'a', notes: ['- Relatórios podem ser exportados em PDF.'] },
-      { number: 2, title: 'INFRA - Otimiza cache', author: 'b', notes: null },
-      { number: 3, title: 'Ajustes gerais', author: 'c', notes: ['- Melhorias de desempenho.'] },
+      {
+        number: 1,
+        title: 'OTF - Exporta relatórios',
+        author: 'a',
+        mergedAt: '',
+        notes: ['- Relatórios podem ser exportados em PDF.'],
+      },
+      { number: 2, title: 'INFRA - Otimiza cache', author: 'b', mergedAt: '', notes: null },
+      { number: 3, title: 'Ajustes gerais', author: 'c', mergedAt: '', notes: ['- Melhorias de desempenho.'] },
     ],
     directCommits: [],
     head: 'dev',
@@ -313,7 +334,7 @@ test('renderChangelog adds a grouped customer section from PR notes', () => {
 
 test('renderChangelog omits the customer section when no PR has notes', () => {
   const changelog = renderChangelog({
-    prs: [{ number: 4, title: 'OTF - Sem nota', author: 'a', notes: null }],
+    prs: [{ number: 4, title: 'OTF - Sem nota', author: 'a', mergedAt: '', notes: null }],
     directCommits: [],
     head: 'dev',
     groups: parseGroups('OTF: Operação Terra Forte'),
@@ -324,7 +345,7 @@ test('renderChangelog omits the customer section when no PR has notes', () => {
 
 test('renderChangelog renders flat customer notes without groups', () => {
   const changelog = renderChangelog({
-    prs: [{ number: 5, title: 'Qualquer coisa', author: 'a', notes: ['- Nota simples.'] }],
+    prs: [{ number: 5, title: 'Qualquer coisa', author: 'a', mergedAt: '', notes: ['- Nota simples.'] }],
     directCommits: [],
     head: 'dev',
     groups: parseGroups(''),
@@ -334,7 +355,7 @@ test('renderChangelog renders flat customer notes without groups', () => {
 
 test('renderChangelog stays flat when no groups are configured', () => {
   const changelog = renderChangelog({
-    prs: [{ number: 8, title: 'OTF - Continua plano', author: 'a' }],
+    prs: [{ number: 8, title: 'OTF - Continua plano', author: 'a', mergedAt: '', notes: null }],
     directCommits: [],
     head: 'dev',
     groups: parseGroups(''),
