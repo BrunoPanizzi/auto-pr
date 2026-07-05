@@ -57,7 +57,7 @@ eventos") can pass a mapping via the `groups` input to get the changelog
 grouped by project, with full names as headings:
 
 ```yaml
-- uses: BrunoPanizzi/auto-pr@master
+- uses: BrunoPanizzi/auto-pr@v1
   with:
     groups: |
       OTF: Operação Terra Forte
@@ -176,8 +176,7 @@ jobs:
     if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/novidades')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: BrunoPanizzi/auto-pr/novidades@master
+      - uses: BrunoPanizzi/auto-pr/novidades@v1
 ```
 
 > [!NOTE]
@@ -210,13 +209,17 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'dev')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: BrunoPanizzi/auto-pr/release@master
+      - uses: BrunoPanizzi/auto-pr/release@v1
+        with:
+          update-major-tag: 'false'  # 'true' only for repos consumed by tag, like this one
 ```
 
 Publishing is idempotent (an existing release for the tag is left untouched)
 and entirely decoupled from deploys — no artifacts are involved unless you
-decide to attach some later.
+decide to attach some later. With `update-major-tag: 'true'`, the release
+also force-moves the moving major tag (`v1`, `v2`, ...) to the release
+commit — that is how this repository keeps `@v1` current for consumers of
+its actions.
 
 > [!IMPORTANT]
 > Merge the release PR with a **merge commit** (not squash), so that `master`
@@ -246,12 +249,14 @@ jobs:
   release-pr:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: BrunoPanizzi/auto-pr@master
+      - uses: BrunoPanizzi/auto-pr@v1
 ```
 
-This repository dogfoods the action with `uses: ./` in
-[`.github/workflows/release-pr.yml`](.github/workflows/release-pr.yml).
+Pin `@v1` — the moving major tag is updated by every release of this repo
+(courtesy of the `release/` action's `update-major-tag` input, dogfooded
+here). `@master` also works if you prefer living on the edge. Consumers do
+not need `actions/checkout`; this repository's own workflows only check out
+because they use the local `uses: ./` form.
 
 > [!NOTE]
 > For the default `GITHUB_TOKEN` to be allowed to open PRs, enable
@@ -282,11 +287,26 @@ This repository dogfoods the action with `uses: ./` in
 
 ## Development
 
-The logic lives in [`src/release-pr.js`](src/release-pr.js) and is executed by
-`actions/github-script` from the composite action in
-[`action.yml`](action.yml). Pure functions (version parsing/bumping, changelog
-rendering, body splicing) are unit-tested:
+The three actions are native `node24` actions written in TypeScript:
+
+| Path               | Action              | Entry point         | Bundle                     |
+| ------------------ | ------------------- | ------------------- | -------------------------- |
+| `action.yml`       | release PR upserter | `src/main.ts`       | `dist/index.cjs`           |
+| `release/`         | release publisher   | `src/publish.ts`    | `release/dist/index.cjs`   |
+| `novidades/`       | comment command     | `src/novidades.ts`  | `novidades/dist/index.cjs` |
+
+Pure logic lives in `src/lib.ts`, octokit flows in `src/api.ts`, and the unit
+tests in `src/lib.test.ts` run directly on Node's native type stripping — no
+test framework or transpile step.
 
 ```sh
-node --test
+npm ci
+npm run typecheck   # tsc --noEmit, strict
+npm test            # node --test src/lib.test.ts
+npm run build       # esbuild -> committed dist bundles
 ```
+
+> [!IMPORTANT]
+> The `dist/` bundles are **committed** — GitHub runs actions straight from
+> the repository tree, so every source change must be accompanied by
+> `npm run build`. CI fails any PR whose bundles are stale.

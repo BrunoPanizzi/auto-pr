@@ -2,8 +2,21 @@
   "name": "auto-pr",
   "version": "0.0.0",
   "private": true,
-  "description": "GitHub Action keeping an always-open release PR from dev to master with an auto-updated changelog",
+  "type": "module",
+  "description": "GitHub Actions keeping an always-open release PR from dev to master with dev and customer changelogs",
   "scripts": {
-    "test": "node --test"
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test src/lib.test.ts",
+    "all": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "@actions/core": "^3.0.1",
+    "@actions/github": "^9.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^6.0.3"
   }
 }
