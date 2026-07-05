@@ -12,5 +12,27 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: node --test
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - run: npm run build
+
+      # The committed bundles must match the sources, since GitHub runs
+      # actions straight from the tree at the consumed ref.
+      - name: Check dist is up to date
+        run: |
+          if ! git diff --quiet -- dist release/dist novidades/dist; then
+            echo "::error::dist/ is stale — run 'npm run build' and commit the result"
+            git diff --stat -- dist release/dist novidades/dist
+            exit 1
+          fi

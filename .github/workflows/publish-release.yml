@@ -16,10 +16,12 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'dev')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - id: publish
         uses: ./release
+        with:
+          update-major-tag: 'true'
 
       - name: Summary
         if: steps.publish.outputs.tag != ''

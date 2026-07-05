@@ -21,26 +21,19 @@ inputs:
   head:
     description: 'Staging branch the release PR comes from.'
     default: 'dev'
+  update-major-tag:
+    description: >-
+      When 'true', also force-moves the moving major tag (v1, v2, ...) to the
+      release commit. Meant for repositories that publish actions or
+      libraries consumed by tag, like this one.
+    default: 'false'
 
 outputs:
   release-url:
     description: 'URL of the published (or already existing) GitHub Release.'
-    value: ${{ steps.publish.outputs.release-url }}
   tag:
     description: 'Version tag of the release, e.g. v1.2.0.'
-    value: ${{ steps.publish.outputs.tag }}
 
 runs:
-  using: 'composite'
-  steps:
-    - id: publish
-      uses: actions/github-script@v7
-      env:
-        ACTION_PATH: ${{ github.action_path }}
-        INPUT_BASE: ${{ inputs.base }}
-        INPUT_HEAD: ${{ inputs.head }}
-      with:
-        github-token: ${{ inputs.github-token }}
-        script: |
-          const { publishRelease } = require(process.env.ACTION_PATH + '/../src/release-pr.js')
-          await publishRelease({ github, context, core })
+  using: 'node24'
+  main: 'dist/index.cjs'
