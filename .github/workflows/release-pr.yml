@@ -27,6 +27,7 @@ jobs:
           groups: |
             OTF: Operação Terra Forte
             INFRA: Infraestrutura
+            IND: Hortti Index
           ungrouped-label: Outros
           customer-heading: Novidades
 
